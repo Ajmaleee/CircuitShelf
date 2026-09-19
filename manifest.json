@@ -1,0 +1,26 @@
+{
+  "name": "Parts — component inventory",
+  "short_name": "Parts",
+  "description": "Offline inventory for Arduino modules, sensors and electronic components. Track condition, stock, prices, wiring notes and lending.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "id": "/",
+  "lang": "en",
+  "dir": "ltr",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#e6e6e6",
+  "theme_color": "#e6e6e6",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "apple-touch-icon.png", "sizes": "180x180", "type": "image/png", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Add a part", "short_name": "Add", "url": "/?action=add", "icons": [{ "src": "icon-192.png", "sizes": "192x192" }] }
+  ]
+}

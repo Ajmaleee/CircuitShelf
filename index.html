@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#e6e6e6">
+<title>Parts — offline inventory for Arduino modules, sensors and components</title>
+<meta name="description" content="Parts is a free offline-first inventory app for Arduino, ESP32 and Raspberry Pi builders. Track every sensor, module and component, mark what works, record wiring notes, prices and who borrowed what — on any device, with or without a connection.">
+<meta name="keywords" content="arduino inventory app, electronic component tracker, sensor inventory, maker parts organiser, esp32 parts list, component stock app, pwa offline inventory">
+<meta name="author" content="Parts">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://bench-stock.web.app/">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Parts">
+<meta property="og:title" content="Parts — offline inventory for Arduino modules and sensors">
+<meta property="og:description" content="Track every sensor, module and component on your bench. Works offline, installs like an app, syncs across devices with one shared password.">
+<meta property="og:url" content="https://bench-stock.web.app/">
+<meta property="og:image" content="https://bench-stock.web.app/icon-512.png">
+<meta property="og:locale" content="en">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="Parts — offline inventory for Arduino modules and sensors">
+<meta name="twitter:description" content="Track every sensor, module and component on your bench. Offline-first, installable, syncs across devices.">
+<meta name="twitter:image" content="https://bench-stock.web.app/icon-512.png">
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Parts">
+<meta name="format-detection" content="telephone=no">
+
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="favicon-32.png" sizes="32x32">
+<link rel="icon" href="icon-192.png" sizes="192x192">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Parts",
+"applicationCategory":"ProductivityApplication","operatingSystem":"Any (progressive web app)",
+"description":"Offline-first inventory for Arduino modules, sensors and electronic components. Track condition, quantity, price, wiring notes, storage location and lending.",
+"url":"https://bench-stock.web.app/","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
+"featureList":["Works fully offline","Installs as an app","Photos and pinout notes per part","Low stock warnings","Lending records","Cross-device sync with a shared password","Editable colour palette","CSV and JSON export"]}
+</script>
+
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<svg class="hidden" aria-hidden="true" width="0" height="0">
+  <filter id="lgWarp" x="-30%" y="-30%" width="160%" height="160%" color-interpolation-filters="sRGB">
+    <feTurbulence type="fractalNoise" baseFrequency="0.006 0.011" numOctaves="2" seed="17" result="n">
+      <animate attributeName="baseFrequency" dur="26s" values="0.006 0.011;0.009 0.008;0.006 0.011" repeatCount="indefinite"/>
+    </feTurbulence>
+    <feGaussianBlur in="n" stdDeviation="3.5" result="ns"/>
+    <feDisplacementMap in="SourceGraphic" in2="ns" scale="26" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+</svg>
+
+<div class="stage" aria-hidden="true"></div>
+
+<noscript>
+  <div style="max-width:560px;margin:40px auto;padding:0 20px;font:16px/1.6 system-ui">
+    <h1>Parts — offline inventory for Arduino modules, sensors and components</h1>
+    <p>Parts is a free, installable inventory app for anyone with a drawer full of sensors, modules, boards and passives.
+    Record what you own, mark each item as working, not working or untested, note the wiring and pinout, store a photo,
+    track prices and storage locations, log who borrowed what, and get a warning when a component runs low.</p>
+    <p>It works fully offline once installed, and can sync across all your devices through Firebase with a single shared password.
+    JavaScript is required to run the app.</p>
+  </div>
+</noscript>
+
+<div class="pull" id="pull" aria-hidden="true">
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2.5v11m0 0 4-4m-4 4-4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span id="pullTxt">Pull to sync</span>
+</div>
+
+<main class="app" id="appRoot">
+  <div class="topbar">
+    <header class="lg head"><span class="lg-edge"></span>
+      <div class="head-row">
+        <div>
+          <h1>Parts</h1>
+          <p class="sub" id="sub">Loading</p>
+        </div>
+        <button class="sync" id="syncBtn" aria-label="Sync status and settings">
+          <span class="dot" id="syncDot"></span><span id="syncTxt">Local</span>
+        </button>
+      </div>
+
+      <button class="stats" id="statsBtn" aria-label="Open inventory breakdown">
+        <span class="stat ok"><b id="nOk">0</b><span>Working</span></span>
+        <span class="stat bad"><b id="nBad">0</b><span>Not working</span></span>
+        <span class="stat"><b id="nUnk">0</b><span>Untested</span></span>
+        <span class="stat"><b id="nVal">—</b><span>Spent</span></span>
+      </button>
+
+      <div class="search">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.6"/><path d="m11 11 3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input id="q" type="search" placeholder="Search name, tag, box, pinout" autocomplete="off" enterkeyhint="search" aria-label="Search parts">
+        <button class="clear" id="clearQ" aria-label="Clear search">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="7" fill="currentColor"/><path d="M5.5 5.5 10.5 10.5M10.5 5.5 5.5 10.5" stroke="rgb(230,230,230)" stroke-width="1.6" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+
+      <div class="filters" id="filters" role="group" aria-label="Filters"></div>
+    </header>
+  </div>
+
+  <section class="list" id="list" aria-live="polite"></section>
+</main>
+
+<nav class="lg dock" id="dock"><span class="lg-edge"></span>
+  <button class="dock-btn ghost" id="sortBtn" aria-label="Change sort order">
+    <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><path d="M6 4v12m0 0 3-3m-3 3-3-3M14 16V4m0 0-3 3m3-3 3 3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+  <button class="dock-btn primary" id="addBtn">
+    <svg width="17" height="17" viewBox="0 0 18 18" fill="none"><path d="M9 3.5v11M3.5 9h11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    Add part
+  </button>
+  <button class="dock-btn ghost" id="moreBtn" aria-label="Open settings">
+    <svg width="19" height="19" viewBox="0 0 20 20" fill="none"><circle cx="4" cy="10" r="1.55" fill="currentColor"/><circle cx="10" cy="10" r="1.55" fill="currentColor"/><circle cx="16" cy="10" r="1.55" fill="currentColor"/></svg>
+  </button>
+</nav>
+
+<div class="scrim" id="scrim"></div>
+
+<!-- editor -->
+<section class="lg sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <span class="lg-edge"></span><div class="grip"></div>
+  <div class="sheet-head">
+    <button class="link" id="cancel">Cancel</button>
+    <h2 id="sheetTitle">New part</h2>
+    <button class="link go" id="save">Save</button>
+  </div>
+  <div class="sheet-body">
+    <div class="photo-row">
+      <button class="photo-box" id="photoBox" aria-label="Add a photo"></button>
+      <div class="photo-tools">
+        <button class="tiny" id="photoPick">Take or choose photo</button>
+        <button class="tiny warn hidden" id="photoDel">Remove photo</button>
+      </div>
+      <input type="file" id="photoFile" accept="image/*" capture="environment" class="hidden">
+    </div>
+
+    <div class="field">
+      <label for="f-name">Name</label>
+      <input class="input" id="f-name" placeholder="DHT22 temperature sensor" autocomplete="off" enterkeyhint="next">
+    </div>
+    <div class="field">
+      <label for="f-status">Condition</label>
+      <div class="seg" id="f-status" role="group">
+        <button type="button" data-v="working">Working</button>
+        <button type="button" data-v="faulty">Not working</button>
+        <button type="button" data-v="untested">Untested</button>
+      </div>
+    </div>
+    <div class="two">
+      <div class="field">
+        <label for="f-type">Category</label>
+        <select class="input" id="f-type"></select>
+      </div>
+      <div class="field">
+        <label for="f-qty">Quantity</label>
+        <div class="stepper">
+          <button type="button" id="qtyDown" aria-label="Decrease quantity">&minus;</button>
+          <input id="f-qty" type="number" inputmode="numeric" min="0" step="1" value="1" aria-label="Quantity">
+          <button type="button" id="qtyUp" aria-label="Increase quantity">+</button>
+        </div>
+      </div>
+    </div>
+    <div class="two">
+      <div class="field">
+        <label for="f-min">Warn below <em>— optional</em></label>
+        <input class="input" id="f-min" type="number" inputmode="numeric" min="0" step="1" placeholder="0">
+      </div>
+      <div class="field">
+        <label for="f-price">Price each <em>— optional</em></label>
+        <input class="input" id="f-price" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00">
+      </div>
+    </div>
+    <div class="two">
+      <div class="field">
+        <label for="f-date">Date added</label>
+        <input class="input" id="f-date" type="date">
+      </div>
+      <div class="field">
+        <label for="f-box">Stored in</label>
+        <input class="input" id="f-box" placeholder="Drawer B" autocomplete="off">
+      </div>
+    </div>
+    <div class="field">
+      <label for="f-tags">Tags <em>— comma separated</em></label>
+      <input class="input" id="f-tags" placeholder="i2c, 3v3, weather station" autocomplete="off">
+    </div>
+
+    <div class="hr"></div>
+    <div class="two">
+      <div class="field">
+        <label for="f-lent">Lent to <em>— optional</em></label>
+        <input class="input" id="f-lent" placeholder="Nobody" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="f-lentqty">How many</label>
+        <input class="input" id="f-lentqty" type="number" inputmode="numeric" min="0" step="1" placeholder="1">
+      </div>
+    </div>
+    <div class="two">
+      <div class="field">
+        <label for="f-lenton">Lent on</label>
+        <input class="input" id="f-lenton" type="date">
+      </div>
+      <div class="field">
+        <label for="f-lentdue">Due back</label>
+        <input class="input" id="f-lentdue" type="date">
+      </div>
+    </div>
+    <div class="field">
+      <label for="f-lentnote">Lending note</label>
+      <input class="input" id="f-lentnote" placeholder="Took it for the robotics club demo" autocomplete="off">
+    </div>
+    <button class="tiny warn hidden" id="returnBtn" style="margin-bottom:12px">Mark as returned</button>
+
+    <div class="hr"></div>
+    <div class="field">
+      <label for="f-url">Datasheet or product link <em>— optional</em></label>
+      <input class="input" id="f-url" type="url" inputmode="url" placeholder="https://" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="f-pins">Wiring and pinout</label>
+      <textarea class="input mono" id="f-pins" placeholder="VCC &#8594; 3.3V&#10;GND &#8594; GND&#10;DATA &#8594; D4 (10k pull-up)"></textarea>
+    </div>
+    <div class="field">
+      <label for="f-note">Notes</label>
+      <textarea class="input" id="f-note" placeholder="Bought with the starter kit. One of three reads high."></textarea>
+    </div>
+    <button class="rowbtn hidden" id="dupBtn">Duplicate this part<span>new copy</span></button>
+    <button class="danger hidden" id="deleteBtn">Delete part</button>
+  </div>
+</section>
+
+<!-- bulk -->
+<section class="lg sheet" id="sheetBulk" role="dialog" aria-modal="true" aria-labelledby="bulkTitle">
+  <span class="lg-edge"></span><div class="grip"></div>
+  <div class="sheet-head">
+    <button class="link" id="cancelBulk">Cancel</button>
+    <h2 id="bulkTitle">Add many</h2>
+    <button class="link go" id="saveBulk">Add</button>
+  </div>
+  <div class="sheet-body">
+    <div class="field">
+      <label for="f-bulk">One part per line</label>
+      <textarea class="input mono" id="f-bulk" style="height:190px" placeholder="HC-SR04 ultrasonic x4 @85 #Sensor (Drawer A)
+SG90 servo x2 !working
+ESP32 devkit @450
+10k resistor x50 #Passive"></textarea>
+    </div>
+    <p class="hint" id="bulkPreview">Write a name, then add x4 for quantity, @85 for price, #Sensor for category, !working or !faulty for condition, and (Drawer A) for where it lives. Anything you leave out gets guessed.</p>
+  </div>
+</section>
+
+<!-- stats -->
+<section class="lg sheet" id="sheetStats" role="dialog" aria-modal="true" aria-labelledby="statsTitle">
+  <span class="lg-edge"></span><div class="grip"></div>
+  <div class="sheet-head">
+    <button class="link" id="cancelStats">Close</button>
+    <h2 id="statsTitle">Breakdown</h2>
+    <span class="link" style="opacity:0;pointer-events:none">Close</span>
+  </div>
+  <div class="sheet-body" id="statsBody"></div>
+</section>
+
+<!-- settings -->
+<section class="lg sheet" id="sheet2" role="dialog" aria-modal="true" aria-labelledby="sheet2Title">
+  <span class="lg-edge"></span><div class="grip"></div>
+  <div class="sheet-head">
+    <button class="link" id="cancel2">Close</button>
+    <h2 id="sheet2Title">Settings</h2>
+    <span class="link" style="opacity:0;pointer-events:none">Close</span>
+  </div>
+  <div class="sheet-body">
+    <button class="rowbtn" id="bulkBtn">Add many at once<span>paste a list</span></button>
+    <button class="rowbtn" id="seedBtn">Load a starter kit<span>24 common parts</span></button>
+    <button class="rowbtn hidden" id="installBtn">Install on this device<span>offline</span></button>
+
+    <div class="hr"></div>
+    <p class="hint" style="margin-bottom:9px"><b>Sync across devices</b><br>One password unlocks the same inventory everywhere. Anyone with it sees the same parts.</p>
+    <button class="rowbtn" id="vaultBtn">Sync password<span id="vaultState">Not set</span></button>
+    <button class="rowbtn" id="fbSync">Sync now<span id="fbWhen">Never</span></button>
+    <button class="rowbtn" id="lockBtn">Ask for password on open<span id="lockState">Off</span></button>
+    <button class="rowbtn hidden" id="signoutBtn">Leave this vault<span>keeps local copy</span></button>
+
+    <div class="hr"></div>
+    <p class="hint" style="margin-bottom:9px"><b>Palette</b><br>Pick a preset, or set every colour yourself.</p>
+    <div class="swatches" id="swatches"></div>
+    <div class="colors">
+      <label class="colorrow">Background<input type="color" id="c-bg"></label>
+      <label class="colorrow">Text<input type="color" id="c-ink"></label>
+      <label class="colorrow">Working<input type="color" id="c-ok"></label>
+      <label class="colorrow">Not working<input type="color" id="c-bad"></label>
+      <label class="colorrow">Untested<input type="color" id="c-unk"></label>
+      <label class="colorrow">Low stock<input type="color" id="c-warn"></label>
+    </div>
+    <button class="rowbtn" id="resetTheme">Reset palette<span>graphite</span></button>
+
+    <div class="hr"></div>
+    <p class="hint" style="margin-bottom:9px"><b>Categories</b></p>
+    <div class="cats" id="catList"></div>
+    <button class="rowbtn" id="addCat">Add a category<span>+</span></button>
+
+    <div class="hr"></div>
+    <div class="field">
+      <label for="f-cur">Currency</label>
+      <select class="input" id="f-cur"></select>
+    </div>
+    <button class="rowbtn" id="exportBtn">Export backup<span id="expCount">0 parts</span></button>
+    <button class="rowbtn" id="csvBtn">Export spreadsheet<span>.csv</span></button>
+    <button class="rowbtn" id="importBtn">Import backup<span>.json</span></button>
+    <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+
+    <div class="hr"></div>
+    <button class="danger" id="wipeBtn">Delete all parts</button>
+    <p class="hint" style="text-align:center;margin-top:10px">Parts · offline component inventory</p>
+  </div>
+</section>
+
+<!-- gate -->
+<div class="gate" id="gate">
+  <div class="lg gatecard"><span class="lg-edge"></span>
+    <div class="lockmark">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none"><rect x="4" y="9.5" width="14" height="9.5" rx="3.2" stroke="currentColor" stroke-width="1.7"/><path d="M7.5 9.5V7a3.5 3.5 0 0 1 7 0v2.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+    </div>
+    <h2 id="gateTitle">Unlock your inventory</h2>
+    <p id="gateMsg">Enter the password for this inventory.</p>
+    <input class="input" id="gatePwd" type="password" placeholder="Password" autocomplete="current-password" enterkeyhint="go">
+    <input class="input hidden" id="gatePwd2" type="password" placeholder="Repeat password" autocomplete="new-password">
+    <button class="gate-go" id="gateGo">Unlock</button>
+    <button class="link" id="gateSkip">Use on this device only</button>
+  </div>
+</div>
+
+<div class="dlg" id="dlg">
+  <div class="lg dlgcard"><span class="lg-edge"></span>
+    <h3 id="dlgTitle">New category</h3>
+    <input class="input" id="dlgInput" placeholder="Category name" autocomplete="off">
+    <div class="dlgbtns"><button id="dlgNo">Cancel</button><button class="go" id="dlgYes">Add</button></div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox"><img id="lightboxImg" alt=""></div>
+
+<div class="lg toast" id="toast" role="status"><span class="lg-edge"></span>
+  <p id="toastMsg"></p><button id="toastAct">Undo</button>
+</div>
+
+<script src="app.js" defer></script>
+</body>
+</html>

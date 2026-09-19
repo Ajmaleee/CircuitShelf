@@ -1,2 +1,313 @@
-# CircuitShelf
-PartVault is a simple, mobile-first inventory tracker for Arduino and electronics parts. Keep track of sensors, modules, boards, components, cables, and tools, mark items as working or faulty, organize your collection, and quickly find exactly what you need for your next project.
+# Parts
+
+An offline-first inventory for the drawer of sensors, modules and boards on your bench.
+
+Add a component once and you stop rediscovering it: what it is, whether it works, how many
+are left, what it cost, how it wires up, which box it lives in, and who borrowed it. The whole
+app is one HTML file with no build step, no framework and no dependencies. It installs as a
+PWA, runs with the network off, and syncs to Firebase across every device that knows your
+password.
+
+---
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Hosting on Firebase](#hosting-on-firebase)
+- [Firestore setup](#firestore-setup)
+- [How the password works](#how-the-password-works)
+- [Features](#features)
+- [Bulk entry syntax](#bulk-entry-syntax)
+- [Files](#files)
+- [Data model](#data-model)
+- [Where data is stored](#where-data-is-stored)
+- [Customising](#customising)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Quick start
+
+Drop every file in this folder onto any static host and open it. That's the whole install.
+
+```bash
+# local preview — a real HTTP origin is required for the service worker
+python3 -m http.server 8080
+# then open http://localhost:8080
+```
+
+Opening `index.html` straight from disk works too, but the service worker and install prompt
+won't be available, so there's no offline cache and no home-screen icon.
+
+---
+
+## Hosting on Firebase
+
+The app already points at the `bench-stock` project.
+
+```bash
+npm install -g firebase-tools
+firebase login
+firebase init hosting      # public directory: this folder, single-page app: No
+firebase deploy
+```
+
+`firebase.json` should keep the custom 404 and avoid caching the service worker:
+
+```json
+{
+  "hosting": {
+    "public": ".",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "README.md"],
+    "cleanUrls": true,
+    "headers": [
+      { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ]
+  }
+}
+```
+
+Firebase Hosting serves `404.html` automatically for unknown paths. Do **not** set a catch-all
+rewrite to `index.html` — the service worker already keeps the installed app from ever landing
+on a dead page, and the 404 card is what you want for stray links.
+
+If you deploy somewhere else, update the URLs in `sitemap.xml`, `robots.txt` and the
+`canonical` / `og:url` tags at the top of `index.html`.
+
+---
+
+## Firestore setup
+
+Two things must be switched on in the Firebase console.
+
+**1. Anonymous authentication** — Build → Authentication → Sign-in method → Anonymous → Enable.
+The app signs in silently; nobody ever sees a login screen.
+
+**2. Firestore rules.** The database is in production mode, so replace the default rules with:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /vaults/{vault}/parts/{part} {
+      allow read, write: if request.auth != null
+                         && vault.matches('^[a-f0-9]{32}$');
+    }
+  }
+}
+```
+
+That grants access to any signed-in client, but only to a vault path that looks like a real
+password hash. Since the path *is* derived from the password, a vault is only reachable by
+someone who knows it.
+
+Want it tighter? Add a rate limit at the project level, or pin the rule to one specific vault:
+
+```
+match /vaults/{vault}/parts/{part} {
+  allow read, write: if request.auth != null && vault == 'paste-your-vault-id-here';
+}
+```
+
+The vault id is the first 32 hex characters shown in the browser console after you connect
+(`JSON.parse(localStorage['parts.cfg.v1']).vault`).
+
+---
+
+## How the password works
+
+There is no account, no email and no reset link.
+
+1. You type a password in Settings → Sync password.
+2. The app hashes it with SHA-256 (`parts::<password>`).
+3. The first 32 hex characters become the Firestore path: `vaults/<id>/parts/*`.
+4. The remaining characters are kept locally so a wrong password can be rejected offline.
+
+Type the same password on a phone, a laptop and a tablet and all three land in the same vault —
+that's the whole point. **The password itself never leaves the device**, and it can't be
+recovered, so write it down somewhere.
+
+Settings → *Ask for password on open* turns the launch screen on if you want the app locked on
+a shared device. Settings → *Leave this vault* disconnects without touching your local copy.
+
+Sync is last-write-wins on a per-part `updated` timestamp, in both directions, on every save
+and on pull-to-refresh. Edits made offline are queued and merged the next time you're online.
+
+---
+
+## Features
+
+**Tracking**
+- Working / not working / untested, cycled by tapping the pill on any card
+- Quantity with a stepper, plus a *warn below* threshold that raises a Low stock badge and filter
+- Price per unit, with a running total in the header and a currency picker
+- Date added, storage location, free-form tags, and notes
+- Wiring and pinout in a monospace field, rendered on the card
+- Datasheet or product link, shown as a tappable domain chip
+- A photo per part, captured from the camera or picked from the library
+
+**Lending**
+- Who has it, how many, when it went out, when it's due back, and a note
+- Overdue items are flagged; a *Lent out* filter and a breakdown list show everything on loan
+- One button marks a part returned
+
+**Organising**
+- Search across name, category, tags, box, pinout and borrower
+- Filter by condition, category, tag, low stock or lent out
+- Six sort modes including grouped-by-category with section headers
+- Editable category list — add your own from the dropdown or in Settings
+- Bulk entry from a pasted list, and a 24-item starter kit for a cold start
+
+**Everything else**
+- Editable palette: seven presets plus a colour picker for background, text and each state colour
+- Swipe a card for Edit / Copy / Delete, with undo on every destructive action
+- Pull down to sync
+- Breakdown sheet with units by category and by storage box
+- JSON backup (photos included) and CSV export
+- Fully offline once installed; installs to the home screen on Android, iOS and desktop
+
+---
+
+## Bulk entry syntax
+
+Settings → *Add many at once*. One part per line:
+
+```
+HC-SR04 ultrasonic x4 @85 #Sensor (Drawer A)
+SG90 servo x2 !working
+ESP32 devkit @450
+10k resistor x50 #Passive
+```
+
+| Token | Meaning | Example |
+| --- | --- | --- |
+| `x4` or `4x` | quantity | `LED assortment x50` |
+| `@85` | price per unit | `ESP32 @450` |
+| `#Sensor` | category (any of yours) | `#Passive` |
+| `!working` `!faulty` | condition | `!faulty` |
+| `(Drawer A)` | storage location | `(bin 3)` |
+
+Anything you leave out is inferred. The category guesser reads the name, so *SG90 servo* lands
+in Actuator and *ESP32 devkit* in Board. Condition defaults to untested. One undo removes the
+whole batch.
+
+---
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `index.html` | Markup only — links `styles.css` and `app.js` |
+| `styles.css` | Every style: tokens, liquid glass, layout, sheets, animation |
+| `app.js` | All logic: store, rendering, gestures, sync, theming |
+| `sw.js` | Service worker: offline cache and navigation fallback |
+| `manifest.json` | Install metadata, icons, shortcuts |
+| `404.html` | Custom not-found page in the same glass style (self-contained, no external CSS/JS by design — it has to render even if the other files fail to fetch) |
+| `robots.txt`, `sitemap.xml` | Search engine directives |
+| `icon-*.png` | App icons — `any` and `maskable` variants |
+| `apple-touch-icon.png` | iOS home screen icon |
+| `favicon-32.png` | Browser tab icon |
+
+All seven of `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.json`, `404.html` and the icons must be deployed together, in the same folder, for the app to work — `index.html` fetches the other two at load time.
+
+Icons are drawn with a generous safe area, so the maskable set stays intact under circle,
+squircle, rounded-square and teardrop masks.
+
+---
+
+## Data model
+
+```js
+{
+  id: "m4k2p9xq",        // generated locally
+  name: "DHT22 temperature sensor",
+  type: "Sensor",        // one of your categories
+  status: "working",     // working | faulty | untested
+  qty: 3,
+  min: 1,                // warn at or below this, 0 = never
+  price: 120,            // per unit, null when unset
+  date: "2026-04-18",    // date added
+  box: "Drawer B",
+  tags: ["i2c", "3v3"],
+  lentTo: "Ravi",        // "" when nothing is out
+  lentQty: 1,
+  lentOn: "2026-05-02",
+  lentDue: "2026-05-16",
+  lentNote: "robotics club demo",
+  url: "https://…",      // datasheet
+  pins: "VCC → 3.3V\nDATA → D4",
+  note: "one of three reads high",
+  photo: true,           // photo bytes live in IndexedDB under this id
+  created: 1745000000000,
+  updated: 1745000000000 // drives sync conflict resolution
+}
+```
+
+---
+
+## Where data is stored
+
+| What | Where | Synced |
+| --- | --- | --- |
+| Parts | `localStorage` → `parts.v1` | yes, to Firestore |
+| Settings, palette, categories, vault id | `localStorage` → `parts.cfg.v1` | no, per device |
+| Photos | IndexedDB → `parts-media` | no — included in JSON backups |
+
+Photos stay local on purpose: base64 images would blow past Firestore's 1 MB document limit and
+run up your storage bill. Move them between devices with a JSON backup, or wire up Firebase
+Storage if you'd rather have them synced.
+
+---
+
+## Customising
+
+**Palette** — Settings → Palette. Presets, or a colour picker for background, text, working,
+not working, untested and low stock. Everything in the interface derives from those six values,
+including the dark *Carbon* preset.
+
+**Categories** — add from the dropdown in the editor (`＋ New category…`) or in Settings.
+A category in use can't be deleted; the app tells you how many parts hold it.
+
+**Starter kit** — edit the `KIT` array in `index.html` to match what actually came in your box.
+
+**Motion** — all animation runs through one `spring()` function. Raise `stiffness` for snappier,
+raise `damping` to cut the overshoot. `prefers-reduced-motion` is respected throughout.
+
+---
+
+## Keyboard shortcuts
+
+| Key | Action |
+| --- | --- |
+| `N` | New part |
+| `/` or `⌘K` / `Ctrl+K` | Focus search |
+| `⌘↵` / `Ctrl+Enter` | Save the open part |
+| `Esc` | Close sheet, dialog or open row |
+
+---
+
+## Troubleshooting
+
+**Sync says "Sync failed".** Anonymous sign-in isn't enabled, or the Firestore rules still deny
+writes. Both are in [Firestore setup](#firestore-setup).
+
+**A second device shows an empty list.** The password has to match exactly — it's case
+sensitive, and a trailing space counts. Wrong passwords open a different empty vault rather than
+erroring, by design.
+
+**Install button never appears.** It only shows when the browser offers one: HTTPS, a reachable
+`manifest.json`, and a registered service worker. On iOS, use Share → Add to Home Screen.
+
+**Photos vanished.** Clearing site data wipes IndexedDB. Restore from a JSON backup.
+
+**Changes don't show after a deploy.** The service worker serves the cached copy first. Reload
+twice, or bump `VERSION` in `sw.js` on every release.
+
+**Edited `styles.css` or `app.js` and nothing changed.** Same cause — bump `VERSION` in `sw.js`,
+or hard-reload (`Cmd+Shift+R` / `Ctrl+Shift+R`) to bypass the service worker during development.
+
+---
+
+MIT licensed. Built to be read and edited — it's one file, go change it.

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#e6e6e6">
+<meta name="robots" content="noindex,follow">
+<title>Nothing in this drawer — Parts</title>
+<meta name="description" content="That page doesn't exist. Head back to your Parts inventory.">
+<link rel="icon" href="favicon-32.png" sizes="32x32">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+:root{--bg:230,230,230;--ink:#16171a;--ink-2:#5d6066;--ease-out:cubic-bezier(.22,1,.3,1);--ease-rubber:cubic-bezier(.2,1.08,.36,1)}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%}
+body{margin:0;display:grid;place-items:center;padding:24px;background:rgb(var(--bg));color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none;overflow:hidden}
+.stage{position:fixed;inset:0;z-index:0}
+.stage::before{content:"";position:absolute;inset:-20%;filter:blur(6px);
+  background:
+    radial-gradient(38% 28% at 24% 18%,rgba(255,255,255,.95),transparent 62%),
+    radial-gradient(44% 34% at 82% 32%,rgba(255,255,255,.7),transparent 66%),
+    radial-gradient(52% 40% at 50% 104%,rgba(0,0,0,.14),transparent 68%)}
+.stage::after{content:"";position:absolute;inset:0;opacity:.3;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='.055'/%3E%3C/svg%3E")}
+.card{position:relative;z-index:1;isolation:isolate;width:min(100%,380px);padding:34px 26px 26px;text-align:center;border-radius:32px;
+  background:linear-gradient(177deg,rgba(255,255,255,.58),rgba(255,255,255,.26) 38%,rgba(255,255,255,.14) 62%,rgba(255,255,255,.4));
+  backdrop-filter:blur(9px) saturate(1.5) brightness(1.05);-webkit-backdrop-filter:blur(9px) saturate(1.5) brightness(1.05);
+  box-shadow:inset 0 1.2px .5px rgba(255,255,255,.95),inset 0 -1.4px 1px rgba(255,255,255,.55),
+    inset 0 -14px 22px -18px rgba(0,0,0,.5),inset 0 16px 26px -20px rgba(255,255,255,.9),
+    0 8px 18px -10px rgba(0,0,0,.22),0 22px 46px -26px rgba(0,0,0,.28);
+  animation:in 520ms var(--ease-rubber) both}
+@keyframes in{from{opacity:0;transform:translateY(14px) scale(.96)}}
+.card::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;mix-blend-mode:screen;
+  background-image:
+    linear-gradient(142deg,rgba(255,255,255,.98),rgba(255,255,255,0) 22%,rgba(255,255,255,0) 74%,rgba(255,255,255,.72)),
+    linear-gradient(103deg,transparent 12%,rgba(255,255,255,.6) 26%,rgba(255,255,255,.06) 33%,transparent 46%),
+    radial-gradient(circle at 35% 34%,rgba(255,255,255,.95),rgba(255,255,255,.28) 44%,rgba(0,0,0,.16) 62%,transparent 72%),
+    radial-gradient(circle at 37% 35%,rgba(255,255,255,.88),rgba(255,255,255,.2) 46%,rgba(0,0,0,.12) 64%,transparent 74%),
+    repeating-linear-gradient(64deg,transparent 0 23px,rgba(255,255,255,.5) 23px 23.6px,transparent 23.6px 61px);
+  background-size:100% 100%,100% 100%,9px 9px,6px 6px,100% 100%;
+  background-position:0 0,0 0,21% 66%,73% 26%,0 0;
+  background-repeat:no-repeat,no-repeat,no-repeat,no-repeat,repeat}
+.edge{position:absolute;inset:0;border-radius:inherit;border:.5px solid rgba(255,255,255,.75);pointer-events:none;
+  -webkit-mask:linear-gradient(150deg,#000,rgba(0,0,0,.25) 45%,rgba(0,0,0,.65));mask:linear-gradient(150deg,#000,rgba(0,0,0,.25) 45%,rgba(0,0,0,.65))}
+.card>*{position:relative;z-index:3}
+.mark{width:58px;height:58px;margin:0 auto 16px;border-radius:20px;display:grid;place-items:center;color:var(--ink-2);
+  background:rgba(255,255,255,.55);box-shadow:inset 0 1px 0 #fff,0 3px 10px -5px rgba(0,0,0,.4)}
+h1{margin:0 0 7px;font-size:21px;font-weight:680;letter-spacing:-.032em}
+p{margin:0 0 20px;font-size:14px;line-height:1.55;color:var(--ink-2)}
+code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.55);padding:2px 6px;border-radius:7px;
+  -webkit-user-select:text;user-select:text;word-break:break-all}
+a.go{display:block;height:48px;line-height:48px;border-radius:16px;text-decoration:none;color:var(--ink);
+  font-size:15.5px;font-weight:640;background:rgba(255,255,255,.75);
+  box-shadow:inset 0 1px 0 #fff,0 4px 12px -5px rgba(0,0,0,.4);transition:transform 140ms var(--ease-out)}
+a.go:active{transform:scale(.97)}
+small{display:block;margin-top:14px;font-size:12px;color:var(--ink-2)}
+@media (prefers-reduced-motion:reduce){.card{animation:none}}
+</style>
+</head>
+<body>
+<div class="stage" aria-hidden="true"></div>
+<main class="card"><span class="edge"></span>
+  <div class="mark">
+    <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+      <rect x="3.5" y="7" width="19" height="13" rx="4" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M10.5 13.5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <h1>Nothing in this drawer</h1>
+  <p>There's no page at <code id="where">this address</code>. Your inventory is still where you left it.</p>
+  <a class="go" href="/">Back to Parts</a>
+  <small id="count">Returning in 5s</small>
+</main>
+<script>
+  var el=document.getElementById("where");
+  if(el) el.textContent=location.pathname.slice(0,60)||"this address";
+  var n=5, c=document.getElementById("count");
+  var t=setInterval(function(){
+    n--; c.textContent="Returning in "+n+"s";
+    if(n<=0){ clearInterval(t); location.replace("/"); }
+  },1000);
+  document.addEventListener("pointerdown",function(){ clearInterval(t); c.textContent=""; },{once:true});
+</script>
+</body>
+</html>
