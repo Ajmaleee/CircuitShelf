@@ -221,7 +221,7 @@ function cardHTML(i){
       <button class="act copy" data-act="copy"><svg width="15" height="15" viewBox="0 0 18 18" fill="none"><rect x="6.2" y="6.2" width="8.6" height="8.6" rx="2.2" stroke="#fff" stroke-width="1.5"/><path d="M11.8 6.2V5.4a2 2 0 0 0-2-2H5.2a2 2 0 0 0-2 2V10a2 2 0 0 0 2 2H6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>Copy</button>
       <button class="act del" data-act="del"><svg width="15" height="15" viewBox="0 0 18 18" fill="none"><path d="M3.6 4.8h10.8M7.2 4.8V3.4h3.6v1.4M5 4.8l.7 9.1h6.6l.7-9.1" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>Delete</button>
     </div>
-    <div class="lg card"><span class="lg-edge"></span>
+    <div class="lgc card"><span class="lg-edge"></span>
       ${i.photo
         ? `<img class="thumb" data-act="photo" data-ph="${i.id}" alt="${esc(i.name)}">`
         : `<span class="thumb ph" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 22 22" fill="none"><rect x="3" y="3" width="16" height="16" rx="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M7.5 3v3.5M14.5 3v3.5M7.5 15.5V19M14.5 15.5V19M3 7.5h3.5M3 14.5h3.5M15.5 7.5H19M15.5 14.5H19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>`}
@@ -281,17 +281,25 @@ const SNAP=-196;
 function closeRow(row,vel){
   if(!row) return;
   const card=row.querySelector(".card"); if(!card) return;
-  spring(Number(card.dataset.x||0),0,v=>{card.dataset.x=v;card.style.transform=`translate3d(${v}px,0,0)`},{stiffness:420,damping:34,velocity:vel||0});
+  card.classList.add("dragging");
+  spring(Number(card.dataset.x||0),0,v=>{card.dataset.x=v;card.style.transform=`translate3d(${v}px,0,0)`},{stiffness:420,damping:34,velocity:vel||0,onDone(){card.classList.remove("dragging")}});
   row.dataset.open=""; if(openRow===row) openRow=null;
 }
 function openRowTo(row,vel){
   const card=row.querySelector(".card");
-  spring(Number(card.dataset.x||0),SNAP,v=>{card.dataset.x=v;card.style.transform=`translate3d(${v}px,0,0)`},{stiffness:420,damping:36,velocity:vel||0});
+  card.classList.add("dragging");
+  spring(Number(card.dataset.x||0),SNAP,v=>{card.dataset.x=v;card.style.transform=`translate3d(${v}px,0,0)`},{stiffness:420,damping:36,velocity:vel||0,onDone(){card.classList.remove("dragging")}});
   row.dataset.open="1"; openRow=row; tap(6);
 }
 (function rowGestures(){
-  let row=null,card=null,x0=0,y0=0,base=0,dx=0,mode="",lastX=0,lastT=0,vel=0;
+  let row=null,card=null,x0=0,y0=0,base=0,dx=0,mode="",lastX=0,lastT=0,vel=0,raf=0,pendingV=null;
   const list=$("#list");
+  function flush(){
+    raf=0;
+    if(pendingV==null||!card) return;
+    card.dataset.x=pendingV; card.style.transform=`translate3d(${pendingV}px,0,0)`;
+    pendingV=null;
+  }
   list.addEventListener("pointerdown",e=>{
     const r=e.target.closest(".row"); if(!r||e.target.closest(".act")) return;
     row=r; card=r.querySelector(".card"); base=Number(card.dataset.x||0);
@@ -302,7 +310,7 @@ function openRowTo(row,vel){
     if(!row) return;
     const ddx=e.clientX-x0, ddy=e.clientY-y0;
     if(!mode){
-      if(Math.abs(ddx)>7&&Math.abs(ddx)>Math.abs(ddy)*1.3){ mode="x"; card.classList.remove("press"); if(openRow&&openRow!==row) closeRow(openRow); }
+      if(Math.abs(ddx)>7&&Math.abs(ddx)>Math.abs(ddy)*1.3){ mode="x"; card.classList.remove("press"); card.classList.add("dragging"); if(openRow&&openRow!==row) closeRow(openRow); }
       else if(Math.abs(ddy)>7){ mode="y"; card.classList.remove("press"); }
       else return;
     }
@@ -311,12 +319,14 @@ function openRowTo(row,vel){
     let v=base+ddx;
     if(v>0) v=rubber(v,110,.45);
     else if(v<SNAP) v=SNAP+rubber(v-SNAP,130,.45);
-    dx=v; card.dataset.x=v; card.style.transform=`translate3d(${v}px,0,0)`;
+    dx=v; pendingV=v;
+    if(!raf) raf=requestAnimationFrame(flush);
     const now=performance.now(), dt=now-lastT;
     if(dt>0){ vel=(e.clientX-lastX)/dt*1000; lastX=e.clientX; lastT=now; }
   },{passive:false});
   function end(e){
     if(!row) return;
+    if(raf){ cancelAnimationFrame(raf); raf=0; flush(); }
     card.classList.remove("press");
     const r=row, wasMode=mode, moved=Math.abs(e.clientX-x0)+Math.abs(e.clientY-y0);
     row=null; card=null; mode="";
@@ -753,7 +763,12 @@ $("#sortBtn").addEventListener("click",()=>{
   cfg.sort=SORTS[(i+1)%SORTS.length][0]; persist(); render(); tap(6);
   toast(SORTS.find(s=>s[0]===cfg.sort)[1]);
 });
-$("#q").addEventListener("input",e=>{ query=e.target.value; $("#clearQ").classList.toggle("show",!!query); render(); });
+let searchTimer=0;
+$("#q").addEventListener("input",e=>{
+  query=e.target.value; $("#clearQ").classList.toggle("show",!!query);
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(render, query?110:0);
+});
 $("#clearQ").addEventListener("click",()=>{ $("#q").value=""; query=""; $("#clearQ").classList.remove("show"); render(); $("#q").focus(); });
 $("#filters").addEventListener("click",e=>{
   const c=e.target.closest(".chip"); if(!c) return;

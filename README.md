@@ -44,32 +44,21 @@ won't be available, so there's no offline cache and no home-screen icon.
 
 ## Hosting on Firebase
 
-The app already points at the `bench-stock` project.
+The app already points at the `bench-stock` project, and `firebase.json`, `firestore.rules` and
+`firestore.indexes.json` are included and ready to deploy as-is.
 
 ```bash
 npm install -g firebase-tools
 firebase login
-firebase init hosting      # public directory: this folder, single-page app: No
-firebase deploy
+firebase use bench-stock     # or: firebase init, pointing at this folder
+firebase deploy              # ships hosting + Firestore rules together
 ```
 
-`firebase.json` should keep the custom 404 and avoid caching the service worker:
+`firebase.json` keeps the custom 404, sets long cache lifetimes on icons, and marks
+`index.html`, `manifest.json` and `sw.js` as `no-cache` so a redeploy is picked up immediately
+instead of waiting out a browser cache.
 
-```json
-{
-  "hosting": {
-    "public": ".",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "README.md"],
-    "cleanUrls": true,
-    "headers": [
-      { "source": "/sw.js", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
-      { "source": "/index.html", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
-    ]
-  }
-}
-```
-
-Firebase Hosting serves `404.html` automatically for unknown paths. Do **not** set a catch-all
+Firebase Hosting serves `404.html` automatically for unknown paths. Do **not** add a catch-all
 rewrite to `index.html` — the service worker already keeps the installed app from ever landing
 on a dead page, and the 404 card is what you want for stray links.
 
@@ -85,34 +74,42 @@ Two things must be switched on in the Firebase console.
 **1. Anonymous authentication** — Build → Authentication → Sign-in method → Anonymous → Enable.
 The app signs in silently; nobody ever sees a login screen.
 
-**2. Firestore rules.** The database is in production mode, so replace the default rules with:
+**2. Firestore rules.** The database is in production mode, so it denies everything until you
+deploy rules. This repo includes them ready to go:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+`firestore.rules` grants read/write only to a vault path that looks like a real password hash
+(32 lowercase hex characters) and validates the basic shape of every part document, so a
+compromised or buggy client can't corrupt what other devices see:
 
 ```
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /vaults/{vault}/parts/{part} {
-      allow read, write: if request.auth != null
-                         && vault.matches('^[a-f0-9]{32}$');
+    match /vaults/{vaultId}/parts/{partId} {
+      function validVault() { return vaultId.matches('^[a-f0-9]{32}$'); }
+      function validPart() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['name','status','updated'])
+          && d.name is string && d.name.size() > 0 && d.name.size() < 200
+          && d.status in ['working','faulty','untested']
+          && d.updated is number;
+      }
+      allow read: if request.auth != null && validVault();
+      allow create, update: if request.auth != null && validVault() && validPart();
+      allow delete: if request.auth != null && validVault();
     }
+    match /{document=**} { allow read, write: if false; }
   }
 }
 ```
 
-That grants access to any signed-in client, but only to a vault path that looks like a real
-password hash. Since the path *is* derived from the password, a vault is only reachable by
-someone who knows it.
-
-Want it tighter? Add a rate limit at the project level, or pin the rule to one specific vault:
-
-```
-match /vaults/{vault}/parts/{part} {
-  allow read, write: if request.auth != null && vault == 'paste-your-vault-id-here';
-}
-```
-
-The vault id is the first 32 hex characters shown in the browser console after you connect
-(`JSON.parse(localStorage['parts.cfg.v1']).vault`).
+Want it pinned to one specific inventory instead of any valid-looking hash? Swap the
+`validVault()` body for `vaultId == 'paste-your-vault-id-here'`. Find your vault id in the
+browser console after connecting: `JSON.parse(localStorage['parts.cfg.v1']).vault`.
 
 ---
 
@@ -205,12 +202,15 @@ whole batch.
 | `sw.js` | Service worker: offline cache and navigation fallback |
 | `manifest.json` | Install metadata, icons, shortcuts |
 | `404.html` | Custom not-found page in the same glass style (self-contained, no external CSS/JS by design — it has to render even if the other files fail to fetch) |
+| `firebase.json` | Hosting + Firestore config — file layout, cache headers |
+| `firestore.rules` | Production-mode security rules for the vault sync model |
+| `firestore.indexes.json` | Empty index file Firebase expects to find |
 | `robots.txt`, `sitemap.xml` | Search engine directives |
 | `icon-*.png` | App icons — `any` and `maskable` variants |
 | `apple-touch-icon.png` | iOS home screen icon |
 | `favicon-32.png` | Browser tab icon |
 
-All seven of `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.json`, `404.html` and the icons must be deployed together, in the same folder, for the app to work — `index.html` fetches the other two at load time.
+All of `index.html`, `styles.css`, `app.js`, `sw.js`, `manifest.json`, `404.html` and the icons must be deployed together, in the same folder, for the app to work — `index.html` fetches the other two at load time.
 
 Icons are drawn with a generous safe area, so the maskable set stays intact under circle,
 squircle, rounded-square and teardrop masks.
@@ -258,6 +258,39 @@ squircle, rounded-square and teardrop masks.
 Photos stay local on purpose: base64 images would blow past Firestore's 1 MB document limit and
 run up your storage bill. Move them between devices with a JSON backup, or wire up Firebase
 Storage if you'd rather have them synced.
+
+---
+
+## Performance
+
+A scrolling list of glassy cards is expensive by default, so a few things keep it smooth even
+with a few hundred parts:
+
+- **Two glass tiers.** The full effect — an SVG-displaced backdrop, layered blended texture,
+  a nine-layer shadow stack — only runs on the handful of always-static chrome elements
+  (header, dock, sheets, dialogs). Every list row uses `.lgc`, a lighter tier: one
+  `backdrop-filter` pass, four shadow layers, no blend modes, no SVG filter. It reads the same
+  from a normal viewing distance and costs a fraction as much per element, which matters once
+  you're painting it a hundred times over in a list.
+- **`content-visibility: auto` on every row**, so the browser skips layout and paint entirely
+  for cards outside the viewport instead of maintaining all of them live.
+- **A static SVG filter.** The glass warp used to animate its noise field on an endless 26s
+  loop, which forced a continuous, whole-surface repaint on the always-visible header and dock
+  even when nothing was happening. It's now computed once and reused.
+- **A smaller blur radius** (7px, down from 9px) on every glass surface — cheaper to sample,
+  particularly on the `position: sticky` header, which resamples its backdrop on every scroll
+  frame by nature of being sticky.
+- **`requestAnimationFrame`-batched drag updates**, so a fast swipe writes at most one transform
+  per frame instead of one per pointer event.
+- **A debounced search box** (110ms) so typing doesn't rebuild the entire list on every
+  keystroke.
+- **`will-change: transform` only while a row is actually animating** — not parked on every
+  card permanently, which would otherwise reserve a GPU compositing layer for each one whether
+  it's moving or not.
+
+If it's still heavy on a specific device, the biggest remaining lever is the blur radius in
+`.lgc` and `.lg` in `styles.css` — dropping either further (or to 0, i.e. a flat translucent
+panel) costs very little visually and recovers real frame time on low-power hardware.
 
 ---
 

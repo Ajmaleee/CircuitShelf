@@ -1,0 +1,46 @@
+rules_version = '2';
+
+// Parts — Firestore security rules (production mode)
+//
+// Data model: each device signs in anonymously, then reads/writes
+// /vaults/{vaultId}/parts/{partId}, where vaultId is the first 32 hex
+// characters of SHA-256("parts::" + the user's chosen password).
+// Anyone who does not know the password cannot guess a valid vaultId,
+// so this is the access control — there is no separate user/owner field.
+//
+// Deploy with:  firebase deploy --only firestore:rules
+// Or paste this directly into Firebase Console → Firestore → Rules.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /vaults/{vaultId}/parts/{partId} {
+
+      // vaultId must look like a real password hash (32 lowercase hex
+      // chars) — this blocks scanning/creating arbitrary short paths.
+      function validVault() {
+        return vaultId.matches('^[a-f0-9]{32}$');
+      }
+
+      // Basic shape check so a compromised client can't write garbage
+      // that breaks other devices' sync. Adjust field names if you
+      // change the data model in app.js.
+      function validPart() {
+        let d = request.resource.data;
+        return d.keys().hasAll(['name', 'status', 'updated'])
+          && d.name is string && d.name.size() > 0 && d.name.size() < 200
+          && d.status in ['working', 'faulty', 'untested']
+          && d.updated is number;
+      }
+
+      allow read: if request.auth != null && validVault();
+      allow create, update: if request.auth != null && validVault() && validPart();
+      allow delete: if request.auth != null && validVault();
+    }
+
+    // Deny everything else by default (implicit, but explicit for clarity).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

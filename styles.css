@@ -67,8 +67,8 @@ img{-webkit-user-drag:none}
 .lg{
   position:relative;isolation:isolate;border-radius:var(--r-card);
   background:linear-gradient(177deg,rgba(255,255,255,.58) 0%,rgba(255,255,255,.26) 38%,rgba(255,255,255,.14) 62%,rgba(255,255,255,.40) 100%);
-  backdrop-filter:blur(9px) saturate(1.5) brightness(1.05);
-  -webkit-backdrop-filter:blur(9px) saturate(1.5) brightness(1.05);
+  backdrop-filter:blur(7px) saturate(1.4) brightness(1.05);
+  -webkit-backdrop-filter:blur(7px) saturate(1.4) brightness(1.05);
   box-shadow:
     inset 0 1.2px .5px rgba(255,255,255,.95),
     inset 0 -1.4px 1px rgba(255,255,255,.55),
@@ -108,6 +108,25 @@ img{-webkit-user-drag:none}
   border:.5px solid rgba(255,255,255,.75);
   -webkit-mask:linear-gradient(150deg,#000,rgba(0,0,0,.25) 45%,rgba(0,0,0,.65));
           mask:linear-gradient(150deg,#000,rgba(0,0,0,.25) 45%,rgba(0,0,0,.65));
+}
+
+/* ============================================================
+   LIGHT GLASS — repeated list cards get this instead of .lg.
+   Same read at a glance, none of the per-element cost: no SVG
+   displacement filter, no blended multi-layer texture, a single
+   backdrop-filter pass and a short box-shadow stack. This is what
+   actually keeps scrolling smooth once a list has real length.
+   ============================================================ */
+.lgc{
+  position:relative;isolation:isolate;border-radius:var(--r-card);
+  background:linear-gradient(177deg,rgba(255,255,255,.52) 0%,rgba(255,255,255,.24) 45%,rgba(255,255,255,.34) 100%);
+  backdrop-filter:blur(7px) saturate(1.35);
+  -webkit-backdrop-filter:blur(7px) saturate(1.35);
+  box-shadow:
+    inset 0 1px .5px rgba(255,255,255,.9),
+    inset 0 -1px 1px rgba(255,255,255,.4),
+    0 1px 2px rgba(0,0,0,.05),
+    0 6px 14px -10px rgba(0,0,0,.24);
 }
 
 /* ============================================================
@@ -177,7 +196,8 @@ h1{margin:0;font-size:27px;line-height:1.05;letter-spacing:-.035em;font-weight:7
 .sec{margin:8px 4px -2px;font-size:12px;font-weight:640;color:var(--ink-2);display:flex;justify-content:space-between}
 .sec b{font-weight:520;color:var(--ink-3);font-variant-numeric:tabular-nums}
 
-.row{position:relative;border-radius:var(--r-card)}
+.row{position:relative;border-radius:var(--r-card);
+  content-visibility:auto;contain-intrinsic-size:auto 104px}
 .row-actions{position:absolute;inset:0;display:flex;justify-content:flex-end;align-items:stretch;
   gap:7px;padding:6px;border-radius:inherit;background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--bad) 12%,transparent))}
 .act{width:58px;border-radius:18px;display:grid;place-items:center;font-size:11px;font-weight:600;color:#fff;
@@ -188,7 +208,8 @@ h1{margin:0;font-size:27px;line-height:1.05;letter-spacing:-.035em;font-weight:7
 .act.del{background:linear-gradient(180deg,var(--bad),color-mix(in srgb,var(--bad) 80%,#000))}
 .act svg{display:block;margin:0 auto 3px}
 
-.card{position:relative;padding:12px 13px;display:flex;gap:11px;align-items:flex-start;will-change:transform;touch-action:pan-y}
+.card{position:relative;padding:12px 13px;display:flex;gap:11px;align-items:flex-start;touch-action:pan-y}
+.card.dragging{will-change:transform}
 .card>*{position:relative;z-index:3}
 .card.press{transform:scale(.985)}
 
