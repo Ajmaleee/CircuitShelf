@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /404.html
 
-Sitemap: https://bench-stock.web.app/sitemap.xml
+Sitemap: https://circuitshelf-d7fb5.web.app/sitemap.xml

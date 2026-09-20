@@ -1,15 +1,15 @@
 "use strict";
 /* ============================================================
-   FIREBASE — project bench-stock
+   FIREBASE — project circuitshelf-d7fb5
    ============================================================ */
 const FIREBASE={
-  apiKey:"AIzaSyChl90zaxMvUiTeLF8anbKacAWzBRyZvng",
-  authDomain:"bench-stock.firebaseapp.com",
-  projectId:"bench-stock",
-  storageBucket:"bench-stock.firebasestorage.app",
-  messagingSenderId:"798996321165",
-  appId:"1:798996321165:web:8a0952d39604bd596523c4",
-  measurementId:"G-F80THWH0GD"
+  apiKey:"AIzaSyDYsiJ_jIGJ7ftkAZSPTmFYynOFM7lYUkw",
+  authDomain:"circuitshelf-d7fb5.firebaseapp.com",
+  projectId:"circuitshelf-d7fb5",
+  storageBucket:"circuitshelf-d7fb5.firebasestorage.app",
+  messagingSenderId:"1021056105495",
+  appId:"1:1021056105495:web:eb6481640dbab0eaa33052",
+  measurementId:"G-780FQDRMZH"
 };
 const SDK="https://www.gstatic.com/firebasejs/10.12.2/";
 

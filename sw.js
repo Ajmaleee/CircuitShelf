@@ -2,7 +2,7 @@
    Cache-first for the app, network-first for everything else, and every
    navigation falls back to the cached app so the PWA never shows a dead page. */
 
-const VERSION = "parts-v5";
+const VERSION = "parts-v6";
 const SHELL = [
   "./", "./index.html", "./styles.css", "./app.js", "./404.html", "./manifest.json",
   "./icon-192.png", "./icon-512.png",

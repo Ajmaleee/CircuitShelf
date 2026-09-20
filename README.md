@@ -42,30 +42,37 @@ won't be available, so there's no offline cache and no home-screen icon.
 
 ---
 
-## Hosting on Firebase
+## Hosting
 
-The app already points at the `bench-stock` project, and `firebase.json`, `firestore.rules` and
-`firestore.indexes.json` are included and ready to deploy as-is.
+This app is served from **Cloudflare Pages**, with Firebase used only for Firestore (the sync
+database) — not Firebase Hosting. `firebase.json`'s `hosting` block is unused in that setup and
+safe to ignore or delete; only its `firestore` block matters.
+
+**Cloudflare Pages** — connect the repo, or drag-and-drop deploy:
 
 ```bash
-npm install -g firebase-tools
-firebase login
-firebase use bench-stock     # or: firebase init, pointing at this folder
-firebase deploy              # ships hosting + Firestore rules together
+npm install -g wrangler
+wrangler pages deploy .    # from this folder — every file here is static, no build step
 ```
 
-`firebase.json` keeps the custom 404, sets long cache lifetimes on icons, and marks
-`index.html`, `manifest.json` and `sw.js` as `no-cache` so a redeploy is picked up immediately
-instead of waiting out a browser cache.
+Cloudflare Pages serves `404.html` automatically for unknown paths, no config needed. Set
+`index.html`, `manifest.json` and `sw.js` to a short/no cache in Pages → Settings → if you add
+custom cache rules, so a redeploy is picked up immediately instead of waiting out a browser cache.
 
-Firebase Hosting serves `404.html` automatically for unknown paths. Do **not** add a catch-all
-rewrite to `index.html` — the service worker already keeps the installed app from ever landing
-on a dead page, and the 404 card is what you want for stray links.
+Once you have your `*.pages.dev` URL (or a custom domain attached), update it in three places so
+search engines and link previews point at the real address: the `canonical`, `og:url`,
+`og:image`, `twitter:image` tags and the JSON-LD block near the top of `index.html`, plus
+`robots.txt` and `sitemap.xml`. They currently still say `circuitshelf-d7fb5.web.app`, a
+placeholder left over from when this was Firebase-hosted.
 
-If you deploy somewhere else, update the URLs in `sitemap.xml`, `robots.txt` and the
-`canonical` / `og:url` tags at the top of `index.html`.
+**Firestore only** — deploy just the rules from this project:
+
+```bash
+firebase deploy --only firestore:rules,firestore:indexes
+```
 
 ---
+
 
 ## Firestore setup
 
@@ -202,7 +209,7 @@ whole batch.
 | `sw.js` | Service worker: offline cache and navigation fallback |
 | `manifest.json` | Install metadata, icons, shortcuts |
 | `404.html` | Custom not-found page in the same glass style (self-contained, no external CSS/JS by design — it has to render even if the other files fail to fetch) |
-| `firebase.json` | Hosting + Firestore config — file layout, cache headers |
+| `firebase.json` | Firestore-only config — points `firebase deploy` at the rules and indexes below. Hosting lives on Cloudflare Pages, not here |
 | `firestore.rules` | Production-mode security rules for the vault sync model |
 | `firestore.indexes.json` | Empty index file Firebase expects to find |
 | `robots.txt`, `sitemap.xml` | Search engine directives |
