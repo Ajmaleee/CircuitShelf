@@ -48,10 +48,17 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 
 /* photos in IndexedDB */
 const MEDIA="parts-media";
-function openDB(){return new Promise((res,rej)=>{
-  const r=indexedDB.open(MEDIA,1);
-  r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains("photos")) r.result.createObjectStore("photos"); };
-  r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });}
+let dbPromise=null;
+function openDB(){
+  if(dbPromise) return dbPromise;
+  dbPromise=new Promise((res,rej)=>{
+    const r=indexedDB.open(MEDIA,1);
+    r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains("photos")) r.result.createObjectStore("photos"); };
+    r.onsuccess=()=>{ r.result.onclose=()=>{ dbPromise=null; }; res(r.result); };
+    r.onerror=()=>{ dbPromise=null; rej(r.error); };
+  });
+  return dbPromise;
+}
 async function photoGet(id){ try{ const d=await openDB(); return await new Promise((res,rej)=>{
   const q=d.transaction("photos").objectStore("photos").get(id); q.onsuccess=()=>res(q.result||null); q.onerror=()=>rej(); }); }catch(e){ return null } }
 async function photoPut(id,v){ try{ const d=await openDB(); return await new Promise((res,rej)=>{
@@ -119,6 +126,13 @@ function when(iso){
 }
 const isLow=i=>Number(i.min)>0&&Number(i.qty||0)<=Number(i.min);
 const isLent=i=>!!(i.lentTo&&String(i.lentTo).trim());
+function splitOf(i){
+  if(i.breakdown) return i.breakdown;
+  const q=Math.max(0,Number(i.qty)||0), s={working:0,faulty:0,untested:0};
+  s[STATUSES.includes(i.status)?i.status:"untested"]=q;
+  return s;
+}
+const isMixed=i=>{ const s=splitOf(i); return [s.working,s.faulty,s.untested].filter(n=>n>0).length>1; };
 const overdue=i=>isLent(i)&&i.lentDue&&i.lentDue<today();
 const host=u=>{ try{ return new URL(u).hostname.replace(/^www\./,"") }catch(e){ return "Link" } };
 
@@ -191,7 +205,7 @@ function visible(){
     else if(filter==="lent"){ if(!isLent(i)) return false; }
     else if(filter.startsWith("t:")){ if(i.type!==filter.slice(2)) return false; }
     else if(filter.startsWith("g:")){ if(!(i.tags||[]).includes(filter.slice(2))) return false; }
-    else if(filter!=="all"&&i.status!==filter) return false;
+    else if(filter!=="all"&&STATUSES.includes(filter)){ if(!(splitOf(i)[filter]>0)) return false; }
     if(!q) return true;
     return (i.name+" "+(i.type||"")+" "+(i.box||"")+" "+(i.note||"")+" "+(i.pins||"")+" "+(i.lentTo||"")+" "+(i.tags||[]).join(" ")).toLowerCase().includes(q);
   });
@@ -206,7 +220,11 @@ function visible(){
 }
 function stats(){
   const c={working:0,faulty:0,untested:0}; let val=0;
-  items.forEach(i=>{ c[i.status]=(c[i.status]||0)+(Number(i.qty)||1); if(i.price) val+=Number(i.price)*(Number(i.qty)||1); });
+  items.forEach(i=>{
+    const s=splitOf(i);
+    c.working+=s.working; c.faulty+=s.faulty; c.untested+=s.untested;
+    if(i.price) val+=Number(i.price)*(Number(i.qty)||1);
+  });
   $("#nOk").textContent=c.working; $("#nBad").textContent=c.faulty; $("#nUnk").textContent=c.untested;
   $("#nVal").textContent=val?money(val):"—";
   const n=items.length, low=items.filter(isLow).length, lent=items.filter(isLent).length;
@@ -214,6 +232,13 @@ function stats(){
   $("#expCount").textContent=n+" part"+(n===1?"":"s");
 }
 
+function mixHTML(i){
+  const s=splitOf(i);
+  const part=(cls,n)=>n>0?`<b class="${cls}"><i></i>${n}</b>`:"";
+  return `<button class="mix" data-act="editsplit" aria-label="Split condition, tap to adjust">
+    ${part("ok",s.working)}${part("bad",s.faulty)}${part("unk",s.untested)}
+  </button>`;
+}
 function cardHTML(i){
   return `<article class="row" data-id="${i.id}">
     <div class="row-actions">
@@ -242,7 +267,7 @@ function cardHTML(i){
         ${i.pins?`<div class="pins">${esc(i.pins)}</div>`:""}
       </div>
       <div class="right">
-        <button class="status ${i.status}" data-act="cycle"><i></i>${LABEL[i.status]}</button>
+        ${isMixed(i)?mixHTML(i):`<button class="status ${i.status}" data-act="cycle"><i></i>${LABEL[i.status]}</button>`}
         ${i.price?`<div class="price">${esc(money(i.price))}</div>`:""}
       </div>
     </div>
@@ -267,11 +292,20 @@ function render(){
   [...list.querySelectorAll(".row")].forEach((r,n)=>{ r.style.animationDelay=Math.min(n*34,220)+"ms" });
   stats(); buildFilters(); loadThumbs();
 }
-async function loadThumbs(){
-  for(const el of [...document.querySelectorAll(".thumb[data-ph]")]){
-    const src=await photoGet(el.dataset.ph);
-    if(src) el.src=src; else el.remove();
+// Thumbnails load lazily: only fetch from IndexedDB once a row is near
+// the viewport, not for every row the instant a list renders. On a long
+// inventory this is the difference between one photo load and a hundred
+// competing IDB reads firing at once on every filter/sort change.
+const thumbObserver=new IntersectionObserver(entries=>{
+  for(const entry of entries){
+    if(!entry.isIntersecting) continue;
+    const el=entry.target;
+    thumbObserver.unobserve(el);
+    photoGet(el.dataset.ph).then(src=>{ if(src) el.src=src; else el.remove(); });
   }
+},{root:null,rootMargin:"600px 0px",threshold:.01});
+function loadThumbs(){
+  document.querySelectorAll(".thumb[data-ph]").forEach(el=>thumbObserver.observe(el));
 }
 
 /* ============================================================
@@ -355,6 +389,11 @@ function openRowTo(row,vel){
 function cycle(id,btn){
   const it=items.find(i=>i.id===id); if(!it) return;
   it.status=STATUSES[(STATUSES.indexOf(it.status)+1)%3];
+  if(it.breakdown){
+    const q=Math.max(0,Number(it.qty)||0);
+    it.breakdown={working:0,faulty:0,untested:0};
+    it.breakdown[it.status]=q;
+  }
   it.updated=Date.now(); persist(); queueSync();
   btn.className="status "+it.status; btn.innerHTML="<i></i>"+LABEL[it.status];
   spring(1,0,v=>{btn.style.transform=`scale(${1+v*.05})`},{stiffness:600,damping:20,onDone(){btn.style.transform=""}});
@@ -364,6 +403,7 @@ function cycle(id,btn){
 async function duplicate(id){
   const src=items.find(i=>i.id===id); if(!src) return;
   const copy=Object.assign({},src,{id:uid(),created:Date.now(),updated:Date.now(),date:today(),tags:(src.tags||[]).slice(),lentTo:"",lentQty:0,lentOn:"",lentDue:"",lentNote:""});
+  if(src.breakdown) copy.breakdown=Object.assign({},src.breakdown);
   if(src.photo){ const p=await photoGet(src.id); if(p) await photoPut(copy.id,p); }
   items.unshift(copy); persist(); queueSync(); render(); tap(10);
   toast("Copied "+src.name,"Edit",()=>edit(copy.id));
@@ -394,9 +434,10 @@ function openSheet(el){
   el.style.transform=""; requestAnimationFrame(()=>el.classList.add("open"));
   document.body.style.overflow="hidden";
 }
-function closeSheet(vel){
-  const el=activeSheet; if(!el) return;
-  activeSheet=null; scrim.classList.remove("open"); document.body.style.overflow="";
+function closeSheet(vel,forceEl){
+  const el=forceEl||activeSheet; if(!el) return;
+  if(activeSheet===el) activeSheet=null;
+  scrim.classList.remove("open"); document.body.style.overflow="";
   const h=el.offsetHeight, cur=Number(el.dataset.y||0);
   if(vel){
     el.classList.remove("anim");
@@ -429,7 +470,7 @@ function sheetDrag(sheet){
   const end=()=>{
     if(!dragging) return; dragging=false;
     const d=Number(sheet.dataset.y||0), h=sheet.offsetHeight;
-    if(d>h*.28||vel>480) closeSheet(vel||620);
+    if(d>h*.28||vel>480) closeSheet(vel||620,sheet);
     else spring(d,0,v=>{sheet.dataset.y=v;sheet.style.transform=`translate(-50%,${v}px)`},
       {stiffness:420,damping:34,velocity:vel,onDone(){sheet.style.transform="";sheet.dataset.y=0;sheet.classList.add("anim")}});
   };
@@ -490,9 +531,58 @@ function setStatus(v){
   draftStatus=v;
   $("#f-status").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===v)));
 }
-$("#f-status").addEventListener("click",e=>{ const b=e.target.closest("button"); if(b){ setStatus(b.dataset.v); tap(6);} });
-$("#qtyUp").addEventListener("click",()=>{ $("#f-qty").value=(Number($("#f-qty").value)||0)+1; tap(5); });
-$("#qtyDown").addEventListener("click",()=>{ $("#f-qty").value=Math.max(0,(Number($("#f-qty").value)||0)-1); tap(5); });
+$("#f-status").addEventListener("click",e=>{
+  const b=e.target.closest("button"); if(!b) return;
+  setStatus(b.dataset.v); tap(6);
+  // Quick-set: pick a condition while quantity > 1 puts every unit in that
+  // bucket. The split fields below stay editable for anyone who wants to
+  // break it apart afterward — this is just the fast, common-case path.
+  const qty=Math.max(0,Number($("#f-qty").value)||0);
+  if(qty>1){
+    $("#sp-working").value=v==="working"?qty:0;
+    $("#sp-faulty").value=v==="faulty"?qty:0;
+    $("#sp-untested").value=v==="untested"?qty:0;
+    updateSplitHint();
+  }
+});
+function loadSplit(it){
+  const qty=Math.max(0,Number($("#f-qty").value)||0);
+  const s=it?splitOf(it):{working:0,faulty:0,untested:qty};
+  $("#sp-working").value=s.working; $("#sp-faulty").value=s.faulty; $("#sp-untested").value=s.untested;
+  $("#splitWrap").classList.toggle("hidden",qty<=1);
+  updateSplitHint();
+}
+function rebalanceSplit(){
+  const qty=Math.max(0,Number($("#f-qty").value)||0);
+  $("#splitWrap").classList.toggle("hidden",qty<=1);
+  if(qty<=1) return;
+  let w=Math.max(0,Number($("#sp-working").value)||0), f=Math.max(0,Number($("#sp-faulty").value)||0);
+  if(w+f>qty){ f=Math.max(0,qty-w); if(w>qty){ w=qty; f=0; } }
+  $("#sp-working").value=w; $("#sp-faulty").value=f; $("#sp-untested").value=Math.max(0,qty-w-f);
+  updateSplitHint();
+}
+function updateSplitHint(){
+  const qty=Math.max(0,Number($("#f-qty").value)||0);
+  const w=Math.max(0,Number($("#sp-working").value)||0), f=Math.max(0,Number($("#sp-faulty").value)||0), u=Math.max(0,Number($("#sp-untested").value)||0);
+  const sum=w+f+u, hint=$("#splitHint");
+  hint.classList.toggle("warn",sum!==qty);
+  hint.textContent=sum===qty?`${qty} of ${qty} accounted for.`:`${sum} of ${qty} accounted for — the rest will be marked untested when you save.`;
+}
+["sp-working","sp-faulty"].forEach(id=>{
+  $("#"+id).addEventListener("input",()=>{
+    const qty=Math.max(0,Number($("#f-qty").value)||0);
+    let v=Math.max(0,Number($("#"+id).value)||0);
+    const other=id==="sp-working"?"sp-faulty":"sp-working";
+    const otherVal=Math.max(0,Number($("#"+other).value)||0);
+    if(v+otherVal>qty) v=Math.max(0,qty-otherVal);
+    $("#"+id).value=v;
+    $("#sp-untested").value=Math.max(0,qty-v-otherVal);
+    updateSplitHint();
+  });
+});
+$("#qtyUp").addEventListener("click",()=>{ $("#f-qty").value=(Number($("#f-qty").value)||0)+1; rebalanceSplit(); tap(5); });
+$("#qtyDown").addEventListener("click",()=>{ $("#f-qty").value=Math.max(0,(Number($("#f-qty").value)||0)-1); rebalanceSplit(); tap(5); });
+$("#f-qty").addEventListener("input",rebalanceSplit);
 
 const CAM=`<svg width="26" height="26" viewBox="0 0 26 26" fill="none"><rect x="2.5" y="6" width="21" height="15" rx="4" stroke="currentColor" stroke-width="1.6"/><circle cx="13" cy="13.5" r="4" stroke="currentColor" stroke-width="1.6"/><path d="M9 6l1.4-2.2h5.2L17 6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 function setPhotoPreview(src){
@@ -503,7 +593,7 @@ function setPhotoPreview(src){
 }
 setPhotoPreview(null);
 $("#photoPick").addEventListener("click",()=>$("#photoFile").click());
-$("#photoBox").addEventListener("click",()=>{ if(draftPhoto) showPhoto(draftPhoto); else $("#photoFile").click(); });
+$("#photoBox").addEventListener("click",()=>$("#photoFile").click());
 $("#photoDel").addEventListener("click",()=>{ draftPhoto=null; setPhotoPreview(null); tap(8); });
 $("#photoFile").addEventListener("change",async e=>{
   const f=e.target.files&&e.target.files[0]; e.target.value="";
@@ -537,6 +627,7 @@ async function edit(id){
   $("#f-pins").value=it?(it.pins||""):"";
   $("#f-note").value=it?(it.note||""):"";
   setStatus(it?it.status:"working");
+  loadSplit(it);
   $("#deleteBtn").classList.toggle("hidden",!it);
   $("#dupBtn").classList.toggle("hidden",!it);
   draftPhoto=undefined; setPhotoPreview(null);
@@ -545,42 +636,70 @@ async function edit(id){
   if(it&&it.photo){ const p=await photoGet(it.id); if(p){ draftPhoto=p; setPhotoPreview(p); } }
   if(!it) setTimeout(()=>$("#f-name").focus(),300);
 }
+let saving=false;
 $("#save").addEventListener("click",async ()=>{
+  if(saving) return;
   const name=$("#f-name").value.trim();
   if(!name){
     const f=$("#f-name"); f.focus();
     spring(0,1,v=>{f.style.transform=`translateX(${Math.sin(v*Math.PI*3)*6}px)`},{stiffness:420,damping:14,onDone(){f.style.transform=""}});
     tap(20); return;
   }
-  const priceRaw=$("#f-price").value.trim(), minRaw=$("#f-min").value.trim();
-  let url=$("#f-url").value.trim();
-  if(url&&!/^https?:\/\//i.test(url)) url="https://"+url;
-  const lentTo=$("#f-lent").value.trim();
-  const type=$("#f-type").value===NEWCAT?cfg.cats[0]:$("#f-type").value;
-  const data={
-    name,type,status:draftStatus,
-    qty:Math.max(0,Number($("#f-qty").value)||0),
-    min:minRaw===""?0:Math.max(0,Number(minRaw)||0),
-    date:$("#f-date").value||today(),
-    price:priceRaw===""?null:Number(priceRaw),
-    box:$("#f-box").value.trim(),
-    tags:$("#f-tags").value.split(",").map(t=>t.trim()).filter(Boolean).slice(0,8),
-    lentTo, lentQty:lentTo?Math.max(1,Number($("#f-lentqty").value)||1):0,
-    lentOn:lentTo?($("#f-lenton").value||today()):"",
-    lentDue:lentTo?$("#f-lentdue").value:"",
-    lentNote:lentTo?$("#f-lentnote").value.trim():"",
-    url,pins:$("#f-pins").value.trim(),note:$("#f-note").value.trim(),
-    updated:Date.now()
-  };
-  let target;
-  if(editingId){ target=items.find(i=>i.id===editingId); Object.assign(target,data); }
-  else { target=Object.assign({id:uid(),created:Date.now()},data); items.unshift(target); }
-  if(draftPhoto===null){ await photoDel(target.id); target.photo=false; }
-  else if(typeof draftPhoto==="string"){ const ok=await photoPut(target.id,draftPhoto); target.photo=ok; if(!ok) toast("Photo didn't fit — part saved without it"); }
-  persist(); queueSync(); closeSheet(); render(); tap(10);
-  toast(editingId?"Saved":"Added "+name);
+  saving=true;
+  try{
+    const priceRaw=$("#f-price").value.trim(), minRaw=$("#f-min").value.trim();
+    let url=$("#f-url").value.trim();
+    if(url&&!/^https?:\/\//i.test(url)) url="https://"+url;
+    const lentTo=$("#f-lent").value.trim();
+    const type=$("#f-type").value===NEWCAT?cfg.cats[0]:$("#f-type").value;
+    const qty=Math.max(0,Number($("#f-qty").value)||0);
+
+    // Per-unit condition: only meaningful once there's more than one unit.
+    // Below that threshold the top seg control alone decides status, same
+    // as it always has — this whole block is a no-op for qty<=1.
+    let statusForItem=draftStatus, breakdown=null;
+    if(qty>1){
+      let w=Math.max(0,Number($("#sp-working").value)||0), f=Math.max(0,Number($("#sp-faulty").value)||0);
+      if(w+f>qty){ f=Math.max(0,qty-w); if(w>qty){ w=qty; f=0; } }
+      const u=Math.max(0,qty-w-f);
+      if([w,f,u].filter(n=>n>0).length>1){
+        breakdown={working:w,faulty:f,untested:u};
+        statusForItem=w>=f&&w>=u?"working":f>=u?"faulty":"untested";
+      }else{
+        statusForItem=w>0?"working":f>0?"faulty":"untested";
+      }
+    }
+
+    const data={
+      name,type,status:statusForItem,
+      qty,
+      min:minRaw===""?0:Math.max(0,Number(minRaw)||0),
+      date:$("#f-date").value||today(),
+      price:priceRaw===""?null:Number(priceRaw),
+      box:$("#f-box").value.trim(),
+      tags:$("#f-tags").value.split(",").map(t=>t.trim()).filter(Boolean).slice(0,8),
+      lentTo, lentQty:lentTo?Math.max(1,Number($("#f-lentqty").value)||1):0,
+      lentOn:lentTo?($("#f-lenton").value||today()):"",
+      lentDue:lentTo?$("#f-lentdue").value:"",
+      lentNote:lentTo?$("#f-lentnote").value.trim():"",
+      url,pins:$("#f-pins").value.trim(),note:$("#f-note").value.trim(),
+      updated:Date.now()
+    };
+    let target;
+    if(editingId){ target=items.find(i=>i.id===editingId); Object.assign(target,data); }
+    else { target=Object.assign({id:uid(),created:Date.now()},data); items.unshift(target); }
+    if(breakdown) target.breakdown=breakdown; else delete target.breakdown;
+    try{
+      if(draftPhoto===null){ await photoDel(target.id); target.photo=false; }
+      else if(typeof draftPhoto==="string"){ const ok=await photoPut(target.id,draftPhoto); target.photo=ok; if(!ok) toast("Photo didn't fit — part saved without it"); }
+    }catch(err){ toast("Photo didn't save — the part itself is fine"); }
+    persist(); queueSync();
+    toast(editingId?"Saved":"Added "+name);
+  } finally {
+    saving=false; closeSheet(0,$("#sheet")); render(); tap(10);
+  }
 });
-$("#cancel").addEventListener("click",()=>closeSheet());
+$("#cancel").addEventListener("click",()=>closeSheet(0,$("#sheet")));
 $("#dupBtn").addEventListener("click",()=>{ const id=editingId; closeSheet(); setTimeout(()=>duplicate(id),120); });
 $("#deleteBtn").addEventListener("click",()=>{ const id=editingId; closeSheet(); setTimeout(()=>remove(id),110); });
 $("#addBtn").addEventListener("click",()=>edit(null));
@@ -611,7 +730,7 @@ $("#f-bulk").addEventListener("input",()=>{
     :"Write a name, then add x4 for quantity, @85 for price, #Sensor for category, !working or !faulty for condition, and (Drawer A) for where it lives.";
 });
 $("#bulkBtn").addEventListener("click",()=>{ closeSheet(); setTimeout(()=>{ openSheet($("#sheetBulk")); setTimeout(()=>$("#f-bulk").focus(),300); },140); });
-$("#cancelBulk").addEventListener("click",()=>closeSheet());
+$("#cancelBulk").addEventListener("click",()=>closeSheet(0,$("#sheetBulk")));
 $("#saveBulk").addEventListener("click",()=>{
   const parsed=bulkLines();
   if(!parsed.length){ toast("Nothing to add yet"); return; }
@@ -635,7 +754,7 @@ function openStats(){
     return `<div class="bars">${ent.map(([k,v],n)=>
       `<div class="barrow"><em>${esc(k)}</em><div class="bartrack"><div class="barfill" style="width:${Math.round(v/max*100)}%;animation-delay:${n*35}ms"></div></div><b>${v}</b></div>`).join("")}</div>`;
   };
-  const low=items.filter(isLow), lent=items.filter(isLent), dead=items.filter(i=>i.status==="faulty");
+  const low=items.filter(isLow), lent=items.filter(isLent), dead=items.filter(i=>splitOf(i).faulty>0);
   $("#statsBody").innerHTML=`
     <div class="bignum">
       <div><b>${items.length}</b><span>Distinct parts</span></div>
@@ -649,12 +768,12 @@ function openStats(){
     ${low.length?`<div class="hr"></div><p class="hint" style="margin-bottom:8px">Running low</p>
       ${low.slice(0,8).map(i=>`<button class="rowbtn" data-goto="${i.id}">${esc(i.name)}<span>${Number(i.qty)||0} left</span></button>`).join("")}`:""}
     ${dead.length?`<div class="hr"></div><p class="hint" style="margin-bottom:8px">Not working</p>
-      ${dead.slice(0,8).map(i=>`<button class="rowbtn" data-goto="${i.id}">${esc(i.name)}<span>${esc(i.type||"")}</span></button>`).join("")}`:""}`;
+      ${dead.slice(0,8).map(i=>{const f=splitOf(i).faulty;return `<button class="rowbtn" data-goto="${i.id}">${esc(i.name)}<span>${f} of ${Number(i.qty)||0}</span></button>`}).join("")}`:""}`;
   $("#statsBody").scrollTop=0;
   openSheet($("#sheetStats"));
 }
 $("#statsBtn").addEventListener("click",openStats);
-$("#cancelStats").addEventListener("click",()=>closeSheet());
+$("#cancelStats").addEventListener("click",()=>closeSheet(0,$("#sheetStats")));
 $("#statsBody").addEventListener("click",e=>{
   const b=e.target.closest("[data-goto]"); if(!b) return;
   const id=b.dataset.goto; closeSheet(); setTimeout(()=>edit(id),140);
@@ -672,7 +791,7 @@ function openSettings(){
 }
 $("#moreBtn").addEventListener("click",openSettings);
 $("#syncBtn").addEventListener("click",openSettings);
-$("#cancel2").addEventListener("click",()=>closeSheet());
+$("#cancel2").addEventListener("click",()=>closeSheet(0,$("#sheet2")));
 
 $("#swatches").addEventListener("click",e=>{
   const b=e.target.closest(".sw"); if(!b) return;
@@ -697,9 +816,10 @@ $("#exportBtn").addEventListener("click",async ()=>{
   toast("Backup downloaded");
 });
 $("#csvBtn").addEventListener("click",()=>{
-  const cols=["name","type","status","qty","min","price","box","tags","date","lentTo","lentQty","lentOn","lentDue","url","pins","note"];
+  const cols=["name","type","status","qty","workingQty","faultyQty","untestedQty","min","price","box","tags","date","lentTo","lentQty","lentOn","lentDue","url","pins","note"];
   const cell=v=>`"${String(v==null?"":Array.isArray(v)?v.join(" "):v).replace(/"/g,'""')}"`;
-  download("parts-"+today()+".csv",[cols.join(",")].concat(items.map(i=>cols.map(c=>cell(i[c])).join(","))).join("\n"),"text/csv");
+  const row=i=>{ const s=splitOf(i); const rec=Object.assign({},i,{workingQty:s.working,faultyQty:s.faulty,untestedQty:s.untested}); return cols.map(c=>cell(rec[c])).join(","); };
+  download("parts-"+today()+".csv",[cols.join(",")].concat(items.map(row)).join("\n"),"text/csv");
   toast("Spreadsheet downloaded");
 });
 $("#importBtn").addEventListener("click",()=>$("#importFile").click());
@@ -787,12 +907,12 @@ $("#filters").addEventListener("click",e=>{
     if(activeSheet||$("#gate").classList.contains("on")) return;
     if(e.target.closest(".sheet,.dock,.dlg,.lightbox")) return;
     if(window.scrollY>0) return;
-    y0=e.clientY; pulling=true; d=0; root.style.transition="";
+    y0=e.clientY; pulling=true; d=0; root.style.transition=""; root.classList.add("pulling");
   },{passive:true});
   addEventListener("pointermove",e=>{
     if(!pulling) return;
     const raw=e.clientY-y0;
-    if(raw<=0){ if(d>0){ d=0; root.style.transform=""; pill.classList.remove("on","ready"); } return; }
+    if(raw<=0){ if(d>0){ d=0; root.style.transform=""; root.classList.remove("pulling"); pill.classList.remove("on","ready"); } return; }
     if(window.scrollY>0){ pulling=false; return; }
     d=rubber(raw,190,.62);
     root.style.transform=`translate3d(0,${d}px,0)`;
@@ -810,12 +930,12 @@ $("#filters").addEventListener("click",e=>{
       const done=()=>{
         pill.classList.remove("spin","ready");
         spring(46,0,v=>{root.style.transform=`translate3d(0,${v}px,0)`;pill.style.transform=`translate(-50%,${Math.min(v*.55,54)-14}px) scale(.9)`},
-          {stiffness:420,damping:36,onDone(){root.style.transform="";pill.classList.remove("on")}});
+          {stiffness:420,damping:36,onDone(){root.style.transform="";root.classList.remove("pulling");pill.classList.remove("on")}});
       };
       if(cfg.vault) syncNow(true).then(done,done); else { render(); setTimeout(done,420); }
     }else{
       spring(d,0,v=>{root.style.transform=`translate3d(0,${v}px,0)`;pill.style.transform=`translate(-50%,${Math.min(v*.55,54)-14}px) scale(.9)`},
-        {stiffness:460,damping:36,onDone(){root.style.transform="";pill.classList.remove("on","ready")}});
+        {stiffness:460,damping:36,onDone(){root.style.transform="";root.classList.remove("pulling");pill.classList.remove("on","ready")}});
     }
     d=0;
   }

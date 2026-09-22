@@ -167,6 +167,24 @@
         </div>
       </div>
     </div>
+    <div class="field hidden" id="splitWrap">
+      <label>Split by condition <em>— how many of each</em></label>
+      <div class="splitrow">
+        <div class="splitcol ok">
+          <span>Working</span>
+          <input class="splitnum" id="sp-working" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="Units working">
+        </div>
+        <div class="splitcol bad">
+          <span>Not working</span>
+          <input class="splitnum" id="sp-faulty" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="Units not working">
+        </div>
+        <div class="splitcol unk">
+          <span>Untested</span>
+          <input class="splitnum" id="sp-untested" type="number" inputmode="numeric" min="0" step="1" value="0" aria-label="Units untested, calculated automatically" readonly tabindex="-1">
+        </div>
+      </div>
+      <p class="hint" id="splitHint" style="margin:7px 3px 0"></p>
+    </div>
     <div class="two">
       <div class="field">
         <label for="f-min">Warn below <em>— optional</em></label>
