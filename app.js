@@ -35,7 +35,7 @@ const PRESETS=[
 const safeGet=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
 const safeSet=(k,v)=>{try{localStorage.setItem(k,v);return true}catch(e){return false}};
 
-let items=[], cfg={sort:"recent",cur:"INR",cats:DEFAULT_CATS.slice(),theme:Object.assign({},THEME0),vault:"",check:"",askAlways:false,last:0};
+let items=[], cfg={sort:"recent",cur:"INR",cats:DEFAULT_CATS.slice(),theme:Object.assign({},THEME0),vault:"",check:"",askAlways:false,last:0,sound:true};
 try{ const r=safeGet(KEY); if(r) items=JSON.parse(r)||[]; }catch(e){ items=[]; }
 try{ const r=safeGet(CFG); if(r) cfg=Object.assign(cfg,JSON.parse(r)||{}); }catch(e){}
 if(!Array.isArray(items)) items=[];
@@ -102,6 +102,42 @@ function spring(from,to,onUpdate,opts){
 }
 const rubber=(x,dim,c)=>{ c=c||.5; return (1-(1/((Math.abs(x)*c/dim)+1)))*dim*Math.sign(x); };
 const tap=ms=>{ try{ navigator.vibrate&&navigator.vibrate(ms||8) }catch(e){} };
+
+/* ============================================================
+   SOUND — tiny synthesized tones, no audio files, fully offline.
+   Kept to a handful of meaningful moments (save, delete, error,
+   undo, a completed condition toggle, a manual sync) rather than
+   every tap, so it reads as confirmation rather than noise.
+   ============================================================ */
+let actx=null;
+function audioCtx(){
+  if(actx) return actx;
+  try{ actx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ actx=null; }
+  return actx;
+}
+function beep(freq,dur,wave,vol){
+  if(!cfg.sound) return;
+  const ctx=audioCtx(); if(!ctx) return;
+  if(ctx.state==="suspended") ctx.resume().catch(()=>{});
+  const t=ctx.currentTime;
+  const osc=ctx.createOscillator(), gain=ctx.createGain();
+  osc.type=wave||"sine"; osc.frequency.setValueAtTime(freq,t);
+  gain.gain.setValueAtTime(0,t);
+  gain.gain.linearRampToValueAtTime(vol||.045,t+.008);
+  gain.gain.exponentialRampToValueAtTime(.0001,t+dur);
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.start(t); osc.stop(t+dur+.02);
+}
+function sound(kind){
+  switch(kind){
+    case "save": beep(640,.07,"sine",.05); setTimeout(()=>beep(900,.09,"sine",.05),60); break;
+    case "delete": beep(380,.1,"sine",.045); setTimeout(()=>beep(260,.12,"sine",.04),50); break;
+    case "toggle": beep(720,.05,"sine",.04); break;
+    case "error": beep(220,.08,"square",.03); setTimeout(()=>beep(170,.11,"square",.03),75); break;
+    case "undo": beep(500,.06,"sine",.04); setTimeout(()=>beep(680,.06,"sine",.04),55); break;
+    case "sync": beep(760,.06,"sine",.035); setTimeout(()=>beep(1020,.07,"sine",.035),60); break;
+  }
+}
 
 /* ============================================================
    2. helpers
@@ -239,8 +275,20 @@ function mixHTML(i){
     ${part("ok",s.working)}${part("bad",s.faulty)}${part("unk",s.untested)}
   </button>`;
 }
+// A single flat placeholder height for content-visibility:auto is wrong for
+// most cards here — some are one line, some carry a note, pins and three
+// tag chips. A closer per-card estimate means far less visible "pop" as
+// rows are measured for real while scrolling past them.
+function estimateRowHeight(i){
+  let h=76;
+  if(i.note) h+=24;
+  if(i.pins) h+=36+Math.max(0,i.pins.split("\n").length-1)*17;
+  const chips=(i.type?1:0)+(Number(i.qty)!==1?1:0)+(isLow(i)?1:0)+(isLent(i)?1:0)+(i.box?1:0)+Math.min((i.tags||[]).length,3)+(i.url?1:0)+1;
+  if(chips>4) h+=20;
+  return Math.max(72,Math.round(h));
+}
 function cardHTML(i){
-  return `<article class="row" data-id="${i.id}">
+  return `<article class="row" data-id="${i.id}" style="contain-intrinsic-size:auto ${estimateRowHeight(i)}px">
     <div class="row-actions">
       <button class="act edit" data-act="edit"><svg width="15" height="15" viewBox="0 0 18 18" fill="none"><path d="M12.2 2.8a1.7 1.7 0 0 1 2.4 2.4l-8 8-3.2.8.8-3.2 8-8Z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>Edit</button>
       <button class="act copy" data-act="copy"><svg width="15" height="15" viewBox="0 0 18 18" fill="none"><rect x="6.2" y="6.2" width="8.6" height="8.6" rx="2.2" stroke="#fff" stroke-width="1.5"/><path d="M11.8 6.2V5.4a2 2 0 0 0-2-2H5.2a2 2 0 0 0-2 2V10a2 2 0 0 0 2 2H6" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>Copy</button>
@@ -274,6 +322,13 @@ function cardHTML(i){
   </article>`;
 }
 function render(){
+  // Rebuilding the list can momentarily change the page's scrollable height
+  // (rows use content-visibility, so their placeholder size differs slightly
+  // from their real one until each is measured) — pin scroll position across
+  // the rebuild so saving, cycling a status, or a background sync landing
+  // never visibly shifts what you were looking at.
+  const scroller=document.scrollingElement||document.documentElement;
+  const prevScroll=scroller.scrollTop;
   const list=$("#list"), rows=visible();
   openRow=null;
   if(!rows.length){
@@ -291,6 +346,7 @@ function render(){
   }
   [...list.querySelectorAll(".row")].forEach((r,n)=>{ r.style.animationDelay=Math.min(n*34,220)+"ms" });
   stats(); buildFilters(); loadThumbs();
+  scroller.scrollTop=prevScroll;
 }
 // Thumbnails load lazily: only fetch from IndexedDB once a row is near
 // the viewport, not for every row the instant a list renders. On a long
@@ -397,7 +453,7 @@ function cycle(id,btn){
   it.updated=Date.now(); persist(); queueSync();
   btn.className="status "+it.status; btn.innerHTML="<i></i>"+LABEL[it.status];
   spring(1,0,v=>{btn.style.transform=`scale(${1+v*.05})`},{stiffness:600,damping:20,onDone(){btn.style.transform=""}});
-  tap(9); stats();
+  tap(9); sound("toggle"); stats();
   if(["working","faulty","untested"].includes(filter)) setTimeout(render,220);
 }
 async function duplicate(id){
@@ -411,7 +467,7 @@ async function duplicate(id){
 function remove(id){
   const idx=items.findIndex(i=>i.id===id); if(idx<0) return;
   const gone=items[idx], row=$(`.row[data-id="${id}"]`);
-  items.splice(idx,1); persist(); queueSync(); tap(12);
+  items.splice(idx,1); persist(); queueSync(); tap(12); sound("delete");
   if(row){
     row.style.transition="opacity 160ms ease,transform 220ms var(--ease-out),height 220ms var(--ease-out),margin 220ms var(--ease-out)";
     row.style.height=row.offsetHeight+"px"; row.getBoundingClientRect();
@@ -643,7 +699,7 @@ $("#save").addEventListener("click",async ()=>{
   if(!name){
     const f=$("#f-name"); f.focus();
     spring(0,1,v=>{f.style.transform=`translateX(${Math.sin(v*Math.PI*3)*6}px)`},{stiffness:420,damping:14,onDone(){f.style.transform=""}});
-    tap(20); return;
+    tap(20); sound("error"); return;
   }
   saving=true;
   try{
@@ -694,7 +750,7 @@ $("#save").addEventListener("click",async ()=>{
       else if(typeof draftPhoto==="string"){ const ok=await photoPut(target.id,draftPhoto); target.photo=ok; if(!ok) toast("Photo didn't fit — part saved without it"); }
     }catch(err){ toast("Photo didn't save — the part itself is fine"); }
     persist(); queueSync();
-    toast(editingId?"Saved":"Added "+name);
+    sound("save"); toast(editingId?"Saved":"Added "+name);
   } finally {
     saving=false; closeSheet(0,$("#sheet")); render(); tap(10);
   }
@@ -784,6 +840,7 @@ function openSettings(){
   $("#fbWhen").textContent=cfg.last?when(new Date(cfg.last).toISOString().slice(0,10)):"Never";
   $("#vaultState").textContent=cfg.vault?"Connected":"Not set";
   $("#lockState").textContent=cfg.askAlways?"On":"Off";
+  $("#soundState").textContent=cfg.sound?"On":"Off";
   $("#signoutBtn").classList.toggle("hidden",!cfg.vault);
   $("#f-cur").value=cfg.cur||"INR";
   paintSettingsTheme(); paintCats(); stats();
@@ -952,7 +1009,7 @@ function toast(msg,actionLabel,action){
   t.classList.remove("out");
   $("#toastMsg").textContent=msg;
   b.textContent=actionLabel||"Dismiss";
-  b.onclick=()=>{ if(action) action(); hideToast(); };
+  b.onclick=()=>{ if(action){ if(actionLabel==="Undo") sound("undo"); action(); } hideToast(); };
   t.classList.add("show"); clearTimeout(toastTimer);
   toastTimer=setTimeout(hideToast,action?5200:2500);
 }
@@ -1024,23 +1081,42 @@ async function deleteRemote(id){
 async function syncNow(loud){
   if(!cfg.vault){ if(loud) toast("Set a sync password first"); return; }
   if(!navigator.onLine){ if(loud) toast("You're offline — changes are saved locally"); return; }
+  // Background syncs (queued after an edit, on reconnect, on tab-focus) are
+  // throttled — an explicit tap on "Sync now" or a pull-to-refresh always
+  // goes through immediately regardless of this cooldown.
+  if(!loud && cfg.last && Date.now()-cfg.last<15000) return;
   try{ await connect(); }catch(e){ setSyncUI("off","Sync off"); if(loud) toast("Can't reach Firebase right now"); return; }
   if(fbBusy) return; fbBusy=true; setSyncUI("busy","Syncing");
   try{
-    const {collection,getDocs,doc,setDoc}=fb.fs;
-    const snap=await getDocs(collection(fb.db,"vaults",cfg.vault,"parts"));
+    const {collection,getDocs,doc,setDoc,query,where}=fb.fs;
+    const col=collection(fb.db,"vaults",cfg.vault,"parts");
+    // Only pull documents that changed since our own last successful sync —
+    // not the whole collection every time. A 5s buffer covers clock skew
+    // between devices. First-ever connect (cfg.last is 0) still does one
+    // full read, same as before, to pick up whatever's already in the vault.
+    const sinceRead=cfg.last?Math.max(0,cfg.last-5000):0;
+    const sinceWrite=cfg.last||0;
+    const snap=await getDocs(sinceRead?query(col,where("updated",">",sinceRead)):col);
     const rem=new Map(); snap.forEach(d=>rem.set(d.id,d.data()));
-    const local=new Map(items.map(i=>[i.id,i]));
-    rem.forEach((r,id)=>{ const l=local.get(id);
-      if(!l||(r.updated||0)>(l.updated||0)) local.set(id,Object.assign({id},r,{photo:l?l.photo:false})); });
+    const before=new Map(items.map(i=>[i.id,i]));
+    const merged=new Map(before);
+    rem.forEach((r,id)=>{ const l=merged.get(id);
+      if(!l||(r.updated||0)>(l.updated||0)) merged.set(id,Object.assign({id},r,{photo:l?l.photo:false})); });
     const writes=[];
-    local.forEach((l,id)=>{ const r=rem.get(id);
-      if(!r||(l.updated||0)>(r.updated||0)){ const c=Object.assign({},l); delete c.photo; writes.push(setDoc(doc(fb.db,"vaults",cfg.vault,"parts",id),c)); } });
+    before.forEach((l,id)=>{
+      // Push anything edited on this device since our last sync — but only
+      // if a remote change didn't just win that same item above, or we'd
+      // stomp a newer edit from another device with our stale copy.
+      if((l.updated||0)>sinceWrite && merged.get(id)===l){
+        const c=Object.assign({},l); delete c.photo;
+        writes.push(setDoc(doc(col,id),c));
+      }
+    });
     await Promise.all(writes);
-    items=[...local.values()]; items.forEach(i=>{ if(!Array.isArray(i.tags)) i.tags=[] });
+    items=[...merged.values()]; items.forEach(i=>{ if(!Array.isArray(i.tags)) i.tags=[] });
     cfg.last=Date.now(); persist(); render();
     setSyncUI("on","Synced"); $("#fbWhen").textContent="Just now";
-    if(loud) toast(writes.length?`Synced · ${writes.length} sent up`:"Everything is up to date");
+    if(loud){ sound("sync"); toast(writes.length?`Synced · ${writes.length} sent up`:"Everything is up to date"); }
   }catch(e){
     setSyncUI("off","Sync failed");
     if(loud) toast("Sync failed — check Firestore rules");
@@ -1071,7 +1147,7 @@ function closeGate(){ $("#gate").classList.remove("on"); }
 function shakeGate(){
   const c=$("#gate").querySelector(".gatecard");
   spring(0,1,v=>{c.style.transform=`translateX(${Math.sin(v*Math.PI*3)*8}px)`},{stiffness:420,damping:13,onDone(){c.style.transform=""}});
-  tap(24);
+  tap(24); sound("error");
 }
 $("#gateGo").addEventListener("click",async ()=>{
   const p=$("#gatePwd").value;
@@ -1097,6 +1173,11 @@ $("#lockBtn").addEventListener("click",()=>{
   cfg.askAlways=!cfg.askAlways; persist();
   $("#lockState").textContent=cfg.askAlways?"On":"Off"; tap(6);
   toast(cfg.askAlways?"Password asked on every launch":"Unlocks automatically on this device");
+});
+$("#soundBtn").addEventListener("click",()=>{
+  cfg.sound=!cfg.sound; persist();
+  $("#soundState").textContent=cfg.sound?"On":"Off"; tap(6);
+  if(cfg.sound) sound("toggle");
 });
 $("#signoutBtn").addEventListener("click",()=>{
   cfg.vault=""; cfg.check=""; persist(); fb=null;

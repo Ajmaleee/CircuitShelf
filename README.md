@@ -170,6 +170,8 @@ and on pull-to-refresh. Edits made offline are queued and merged the next time y
 - Pull down to sync
 - Breakdown sheet with units by category and by storage box
 - JSON backup (photos included) and CSV export
+- Small synthesized sound cues on save, delete, undo, a completed condition toggle and manual
+  sync — no audio files, a few lines of Web Audio — with an on/off toggle in Settings
 - Fully offline once installed; installs to the home screen on Android, iOS and desktop
 
 ---
@@ -293,11 +295,53 @@ with a few hundred parts:
   keystroke.
 - **`will-change: transform` only while a row is actually animating** — not parked on every
   card permanently, which would otherwise reserve a GPU compositing layer for each one whether
-  it's moving or not.
+  it's moving or not. Same treatment for the app's outer wrapper: it only gets a compositing
+  layer during the pull-to-sync gesture, not for the whole session.
+- **Scroll position is pinned across every re-render.** Content-visibility's placeholder sizing
+  for off-screen rows means rebuilding the list can momentarily change the page's scrollable
+  height — without correcting for that, saving a part or a background sync landing would visibly
+  shift what you were looking at. `render()` now captures scroll position before touching the
+  DOM and restores it after, every time.
+- **Per-row height estimates instead of one flat guess.** A card with a note, a wiring/pinout
+  block and three tags is a lot taller than a bare one-liner; content-visibility's placeholder
+  now accounts for that per card (`estimateRowHeight()` in `app.js`) instead of assuming every
+  row is the same size, which is what was causing visible pop-in while scrolling past
+  differently-sized cards.
+- **A single reused IndexedDB connection** for photos, instead of opening a fresh one for every
+  read and write.
+- **Lazy-loaded thumbnails.** A photo only loads from IndexedDB once its row is near the
+  viewport (`IntersectionObserver`, 600px lookahead), not for every row the instant a list
+  renders.
 
 If it's still heavy on a specific device, the biggest remaining lever is the blur radius in
 `.lgc` and `.lg` in `styles.css` — dropping either further (or to 0, i.e. a flat translucent
 panel) costs very little visually and recovers real frame time on low-power hardware.
+
+---
+
+## Keeping Firestore usage low
+
+Sync is built to stay well inside the free tier even with frequent use:
+
+- **Incremental reads.** After the first successful sync, every later sync only pulls documents
+  that changed since — a `where("updated", ">", lastSync)` query — instead of re-downloading the
+  whole vault every time. A 200-part inventory that used to cost 200 reads per sync now costs
+  roughly however many parts actually changed since you last synced, which on a normal editing
+  session is usually a handful.
+- **Background syncs are throttled** to once per 15 seconds. Saving five parts in a row, the app
+  reconnecting after a dropped connection, or switching back to the tab after using another app
+  won't each trigger a separate full round-trip. An explicit tap on *Sync now*, or a manual
+  pull-to-refresh, always goes through immediately — the throttle only applies to automatic
+  background syncs.
+- **Writes are already scoped to what actually changed** — only parts whose `updated` timestamp
+  is newer than the last sync get written, and a part that a *different* device just changed more
+  recently is correctly skipped rather than overwritten with a stale local copy.
+- **Deletes** are sent immediately and individually when you delete a part, not batched into the
+  periodic sync — cheap, and keeps other devices from briefly seeing a part that's already gone
+  on this one.
+
+Auth (anonymous sign-in) doesn't count against Firestore's read/write/delete quota at all, so
+that part is free regardless of how often the app reconnects.
 
 ---
 
